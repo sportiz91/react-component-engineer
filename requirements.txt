@@ -1,0 +1,7 @@
+anthropic
+openai
+python-dotenv
+Pillow
+rich
+prompt_toolkit
+pymongo==4.5.0

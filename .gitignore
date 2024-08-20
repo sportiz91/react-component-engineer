@@ -1,0 +1,32 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+react-component-engineer-env/
+
+# VSCode settings
+.vscode/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Python project metadata
+*.log
+*.pot
+*.pyc
+*.pyo
+
+#Misc
+theory/*
+theory.py
+theory.log
+pyproject.toml
+.flake8
+node_modules/
+.env
+
+src/apps/react-component-app/
