@@ -43,5 +43,7 @@ class ConsoleApp:
                     await self.cmd_exit()
                 else:
                     self.console.print(Panel("Unknown command. Type 'help' to see available commands.", title="Error", style="bold red"))
+            except KeyboardInterrupt:
+                await self.commands["exit"].execute()
             except Exception as e:
                 self.console.print(Panel(f"An error occurred: {str(e)}", title="Error", style="bold red"))
