@@ -24,9 +24,10 @@ dist/
 theory/*
 theory.py
 theory.log
+todo.log
 pyproject.toml
 .flake8
 node_modules/
 .env
 
-src/apps/react-component-app/
+src/apps/ui/
