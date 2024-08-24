@@ -160,26 +160,60 @@ module.exports = {
 };
 """.strip()
 
+
 INDEX_CSS_CONTENT = """
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 """.strip()
 
+TSCONFIG_CONTENT = """\
+{
+  "compilerOptions": {
+    "target": "es5",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+    "module": "esnext",
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "typeRoots": ["./node_modules/@types"]
+  },
+  "include": ["src"]
+}
+""".strip()
+
+CSS_MODULE_DECLARATION_CONTENT = """\
+/// <reference types="react-scripts" />
+
+declare module '*.module.css' {
+  const classes: { [key: string]: string };
+  export default classes;
+}
+""".strip()
+
 
 def get_index_content(language, styling):
     content = f"""
-        import React from 'react';
-        import ReactDOM from 'react-dom/client';
-        {"import './index.css';" if styling == "Tailwind" else ""}
-        import App from './App';
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+{"import './index.css';" if styling == "Tailwind" else ""}
+import App from './App';
 
-        const root = ReactDOM.createRoot(document.getElementById('root'){" as HTMLElement" if language == "TypeScript" else ""});
-        root.render(
-        <React.StrictMode>
-            <App />
-        </React.StrictMode>
-        );
+const root = ReactDOM.createRoot(document.getElementById('root'){" as HTMLElement" if language == "TypeScript" else ""});
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
 """.strip()
     return content
 
@@ -226,8 +260,9 @@ def get_component_content(language, styling):
 import React from 'react';
 import {{ Card, Typography }} from '@mui/material';
 import {{ makeStyles }} from '@mui/styles';
+import {{ Theme }} from '@mui/material/styles';
 
-const useStyles = makeStyles((theme) => ({{
+const useStyles = makeStyles((theme: Theme) => ({{
   card: {{
     backgroundColor: theme.palette.primary.main,
     color: theme.palette.secondary.main,
@@ -244,6 +279,21 @@ const MyComponent{' = () =>' if language == 'JavaScript' else ': React.FC = () =
     <Card className={{classes.card}}>
       <Typography variant="h5">Hello React Coder!</Typography>
     </Card>
+  );
+}};
+
+export default MyComponent;
+""".strip()
+    elif styling == "Tailwind":
+        return f"""
+import React from 'react';
+import '../index.css';
+
+const MyComponent{' = () =>' if language == 'JavaScript' else ': React.FC = () =>'} {{
+  return (
+    <div className="p-4 bg-gray-100 text-blue-500">
+      Hello React Coder!
+    </div>
   );
 }};
 
@@ -277,21 +327,25 @@ def get_styling_import(styling, component_name=None):
 
 
 def get_theme_content(language):
-    return """
-    import { createTheme } from '@mui/material/styles';
+    return f"""
+import {{ createTheme, Theme as MuiTheme }} from '@mui/material/styles';
 
-    const theme = createTheme({
-        palette: {
-            primary: {
+{'declare module "@mui/styles/defaultTheme" {' if language == 'TypeScript' else ''}
+{'  interface DefaultTheme extends MuiTheme {}' if language == 'TypeScript' else ''}
+{'  }' if language == 'TypeScript' else ''}
+
+const theme{': MuiTheme' if language == 'TypeScript' else ''} = createTheme({{
+    palette: {{
+        primary: {{
             main: '#1976d2',
-            },
-            secondary: {
+        }},
+        secondary: {{
             main: '#dc004e',
-            },
-        },
-    });
+        }},
+    }},
+}});
 
-    export default theme;
+export default theme;
 """.strip()
 
 
@@ -313,17 +367,47 @@ def get_package_json_content(language, styling):
         "eslint": "^8.40.0",
         "prettier": "^2.8.8",
     }
+    scripts = {
+        "start": "react-scripts start",
+        "build": "react-scripts build",
+        "test": "react-scripts test",
+        "eject": "react-scripts eject",
+        "lint": "eslint .",
+        "format": "prettier --write .",
+    }
 
     if language == "TypeScript":
         dependencies.update(
             {
                 "@types/react": "^18.0.28",
                 "@types/react-dom": "^18.0.11",
+                "@types/node": "^14.14.31",
                 "typescript": "^4.9.5",
             }
         )
+        scripts.update({"tsc": "tsc --noEmit"})
+
+    if styling == "Material UI":
+        dependencies.update(
+            {
+                "@mui/material": "^5.11.10",
+                "@mui/styles": "^5.11.10",
+                "@mui/system": "^5.11.10",
+                "@emotion/react": "^11.10.6",
+                "@emotion/styled": "^11.10.6",
+            }
+        )
+        if language == "TypeScript":
+            dependencies["@mui/types"] = "^7.2.3"
 
     if styling == "Tailwind":
+        scripts.update(
+            {
+                "start": "craco start",
+                "build": "craco build",
+                "test": "craco test",
+            }
+        )
         dependencies.update(
             {
                 "tailwindcss": "^3.2.7",
@@ -334,37 +418,13 @@ def get_package_json_content(language, styling):
         dev_dependencies.update(
             {
                 "@craco/craco": "^7.0.0-alpha.9",
-                "@tailwindcss/postcss7-compat": "^2.2.17",
+                "@craco/types": "^7.0.0-alpha.9",
             }
         )
 
-    elif styling == "Material UI":
-        dependencies.update(
-            {
-                "@mui/material": "^5.11.10",
-                "@mui/styles": "^5.11.10",
-                "@emotion/react": "^11.10.6",
-                "@emotion/styled": "^11.10.6",
-            }
-        )
-
-    scripts = {
-        "start": "react-scripts start",
-        "build": "react-scripts build",
-        "test": "react-scripts test",
-        "eject": "react-scripts eject",
-        "lint": "eslint .",
-        "format": "prettier --write .",
-    }
-
-    if styling == "Tailwind":
-        scripts.update(
-            {
-                "start": "craco start",
-                "build": "craco build",
-                "test": "craco test",
-            }
-        )
+    if language == "TypeScript":
+        scripts["start"] = "react-scripts --openssl-legacy-provider start"
+        scripts["build"] = "react-scripts --openssl-legacy-provider build"
 
     return json.dumps(
         {
@@ -387,13 +447,17 @@ def run_eslint_prettier(base_path):
         if shutil.which("yarn") is None:
             return False, "Yarn is not installed. Please install Yarn and try again."
 
-        subprocess.run(["yarn", "cache", "clean"], check=True, capture_output=True, text=True)
-        subprocess.run(["yarn", "install", "--force"], check=True, capture_output=True, text=True)
+        print("Running yarn install...")
+        install_result = subprocess.run(["yarn", "install", "--force"], capture_output=True, text=True)
+        if install_result.returncode != 0:
+            return False, f"Error during yarn install:\n{install_result.stderr}"
 
+        print("Running ESLint...")
         eslint_result = subprocess.run(["yarn", "run", "lint", "--fix"], capture_output=True, text=True)
         if eslint_result.returncode != 0:
             return False, f"ESLint encountered issues:\n{eslint_result.stderr}"
 
+        print("Running Prettier...")
         prettier_result = subprocess.run(["yarn", "run", "format"], capture_output=True, text=True)
         if prettier_result.returncode != 0:
             return False, f"Prettier encountered issues:\n{prettier_result.stderr}"
@@ -407,10 +471,30 @@ def run_eslint_prettier(base_path):
         os.chdir(original_dir)
 
 
+def run_typescript_check(base_path):
+    original_dir = os.getcwd()
+    try:
+        os.chdir(base_path)
+        result = subprocess.run(["yarn", "run", "tsc"], capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"TypeScript check failed:\n{result.stdout}\n{result.stderr}")
+            return False
+        return True
+    except Exception as e:
+        print(f"Error running TypeScript check: {str(e)}")
+        return False
+    finally:
+        os.chdir(original_dir)
+
+
 def create_react_app_structure(language, styling, launch_browser):
     base_path = Path(__file__).resolve().parents[4] / "apps" / "ui"
 
-    folders = ["src", "public", "src/components"]
+    folders = [
+        "src",
+        "public",
+        "src/components",
+    ]
 
     for folder in folders:
         os.makedirs(base_path / folder, exist_ok=True)
@@ -433,22 +517,33 @@ def create_react_app_structure(language, styling, launch_browser):
         ".prettierrc": PRETTIERRC_CONTENT,
     }
 
+    if language == "TypeScript":
+        main_files["tsconfig.json"] = TSCONFIG_CONTENT
+        main_files["src/react-app-env.d.ts"] = CSS_MODULE_DECLARATION_CONTENT
+        main_files["src/index.tsx"] = get_index_content(language, styling)
+
     if styling == "Tailwind":
         main_files.update(
             {
                 "tailwind.config.js": TAILWIND_CONFIG_CONTENT,
                 "craco.config.js": CRACO_CONFIG_CONTENT,
-                "src/index.css": INDEX_CSS_CONTENT,
                 "postcss.config.js": POSTCSS_CONFIG_CONTENT,
+                "src/index.css": INDEX_CSS_CONTENT,
             }
         )
 
     if styling == "Material UI":
-        main_files[f"src/theme.{language_extension}"] = get_theme_content(language)
+        theme_extension = "ts" if language == "TypeScript" else "js"
+        main_files[f"src/theme.{theme_extension}"] = get_theme_content(language)
 
     for file_path, content in main_files.items():
-        with open(base_path / file_path, "w") as f:
-            f.write(content)
+        try:
+            file_full_path = base_path / file_path
+            os.makedirs(file_full_path.parent, exist_ok=True)
+            with open(file_full_path, "w") as f:
+                f.write(content)
+        except IOError as e:
+            print(f"Error writing file {file_path}: {str(e)}")
 
     if styling == "CSS Modules":
         with open(base_path / "src/components/MyComponent.module.css", "w") as f:
@@ -460,6 +555,10 @@ def create_react_app_structure(language, styling, launch_browser):
         print(f"Warning: {message}")
     else:
         print(message)
+
+    if language == "TypeScript":
+        if not run_typescript_check(base_path):
+            print("Warning: TypeScript check failed. Please review your code for type errors.")
 
     if launch_browser:
         success, message = start_react_app(base_path)
@@ -487,7 +586,8 @@ def start_react_app(base_path):
             if "Compiled successfully" in line or "You can now view" in line:
                 return True, "React app started successfully. You can view it at http://localhost:3000"
 
-        return False, "Failed to start React app or timed out."
+        error_output = process.stderr.read()
+        return False, f"Failed to start React app. Error: {error_output}"
     except Exception as e:
         return False, f"An error occurred while starting the React app: {str(e)}"
     finally:
@@ -517,6 +617,13 @@ class CreateReactComponentCommand(BaseCommand):
 
         self.console.print(f"React app structure created successfully at {base_path}", style="bold green")
         self.console.print("ESLint and Prettier have been run on the generated files.", style="bold green")
+
+        if language == "TypeScript":
+            self.console.print("TypeScript compilation check has been run.", style="bold green")
+            self.console.print(
+                "If you encounter any TypeScript errors, please run try closing your editor and opening it again or running 'yarn tsc' in the project directory for more details.",
+                style="bold yellow",
+            )
 
         if launch_browser:
             if success:
