@@ -185,7 +185,25 @@ def get_index_content(language, styling):
 
 
 def get_app_content(language, styling):
-    return f"""
+    if styling == "Material UI":
+        return f"""
+import React from 'react';
+import {{ ThemeProvider }} from '@mui/material/styles';
+import MyComponent from './components/MyComponent';
+import theme from './theme';
+
+const App{' = () =>' if language == 'JavaScript' else ': React.FC = () =>'} {{
+  return (
+    <ThemeProvider theme={{theme}}>
+      <MyComponent />
+    </ThemeProvider>
+  );
+}};
+
+export default App;
+""".strip()
+    else:
+        return f"""
 import React from 'react';
 import MyComponent from './components/MyComponent';
 {get_styling_import(styling)}
@@ -203,7 +221,36 @@ export default App;
 
 
 def get_component_content(language, styling):
-    return f"""
+    if styling == "Material UI":
+        return f"""
+import React from 'react';
+import {{ Card, Typography }} from '@mui/material';
+import {{ makeStyles }} from '@mui/styles';
+
+const useStyles = makeStyles((theme) => ({{
+  card: {{
+    backgroundColor: theme.palette.primary.main,
+    color: theme.palette.secondary.main,
+    padding: theme.spacing(2),
+    margin: '0 auto',
+    maxWidth: '500px',
+  }},
+}}));
+
+const MyComponent{' = () =>' if language == 'JavaScript' else ': React.FC = () =>'} {{
+  const classes = useStyles();
+
+  return (
+    <Card className={{classes.card}}>
+      <Typography variant="h5">Hello React Coder!</Typography>
+    </Card>
+  );
+}};
+
+export default MyComponent;
+""".strip()
+    else:
+        return f"""
 import React from 'react';
 {get_styling_import(styling, 'MyComponent')}
 
@@ -227,6 +274,25 @@ def get_styling_import(styling, component_name=None):
     elif styling == "Material UI":
         return "import { ThemeProvider, createTheme } from '@mui/material/styles';".strip()
     return "".strip()
+
+
+def get_theme_content(language):
+    return """
+    import { createTheme } from '@mui/material/styles';
+
+    const theme = createTheme({
+        palette: {
+            primary: {
+            main: '#1976d2',
+            },
+            secondary: {
+            main: '#dc004e',
+            },
+        },
+    });
+
+    export default theme;
+""".strip()
 
 
 def get_styling_class(styling):
@@ -276,6 +342,7 @@ def get_package_json_content(language, styling):
         dependencies.update(
             {
                 "@mui/material": "^5.11.10",
+                "@mui/styles": "^5.11.10",
                 "@emotion/react": "^11.10.6",
                 "@emotion/styled": "^11.10.6",
             }
@@ -375,6 +442,9 @@ def create_react_app_structure(language, styling, launch_browser):
                 "postcss.config.js": POSTCSS_CONFIG_CONTENT,
             }
         )
+
+    if styling == "Material UI":
+        main_files[f"src/theme.{language_extension}"] = get_theme_content(language)
 
     for file_path, content in main_files.items():
         with open(base_path / file_path, "w") as f:
