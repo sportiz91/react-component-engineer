@@ -3,6 +3,8 @@ from pathlib import Path
 import json
 import subprocess
 import shutil
+import asyncio
+import socket
 
 
 from src.apps.console.classes.commands.base import BaseCommand
@@ -220,19 +222,39 @@ root.render(
 
 def get_app_content(language, styling):
     if styling == "Material UI":
-        return f"""
+        if language == "TypeScript":
+            return """
 import React from 'react';
-import {{ ThemeProvider }} from '@mui/material/styles';
+import { ThemeProvider } from '@mui/material/styles';
+
 import MyComponent from './components/MyComponent';
 import theme from './theme';
 
-const App{' = () =>' if language == 'JavaScript' else ': React.FC = () =>'} {{
+const App: React.FC = () => {
   return (
-    <ThemeProvider theme={{theme}}>
+    <ThemeProvider theme={theme}>
       <MyComponent />
     </ThemeProvider>
   );
-}};
+};
+
+export default App;
+""".strip()
+        else:
+            return """
+import React from 'react';
+import { ThemeProvider } from '@mui/material/styles';
+import MyComponent from './components/MyComponent';
+
+import theme from './theme';
+
+const App = () => {
+  return (
+    <ThemeProvider theme={theme}>
+      <MyComponent />
+    </ThemeProvider>
+  );
+};
 
 export default App;
 """.strip()
@@ -256,31 +278,60 @@ export default App;
 
 def get_component_content(language, styling):
     if styling == "Material UI":
-        return f"""
+        if language == "TypeScript":
+            return """
 import React from 'react';
-import {{ Card, Typography }} from '@mui/material';
-import {{ makeStyles }} from '@mui/styles';
-import {{ Theme }} from '@mui/material/styles';
+import { Card, Typography } from '@mui/material';
+import { makeStyles } from '@mui/styles';
+import { Theme } from '@mui/material/styles';
 
-const useStyles = makeStyles((theme: Theme) => ({{
-  card: {{
+const useStyles = makeStyles((theme: Theme) => ({
+  card: {
     backgroundColor: theme.palette.primary.main,
     color: theme.palette.secondary.main,
     padding: theme.spacing(2),
     margin: '0 auto',
     maxWidth: '500px',
-  }},
-}}));
+  },
+}));
 
-const MyComponent{' = () =>' if language == 'JavaScript' else ': React.FC = () =>'} {{
+const MyComponent: React.FC = () => {
   const classes = useStyles();
 
   return (
-    <Card className={{classes.card}}>
+    <Card className={classes.card}>
       <Typography variant="h5">Hello React Coder!</Typography>
     </Card>
   );
-}};
+};
+
+export default MyComponent;
+""".strip()
+        else:
+            return """
+import React from 'react';
+import { Card, Typography } from '@mui/material';
+import { makeStyles } from '@mui/styles';
+
+const useStyles = makeStyles((theme) => ({
+  card: {
+    backgroundColor: theme.palette.primary.main,
+    color: theme.palette.secondary.main,
+    padding: theme.spacing(2),
+    margin: '0 auto',
+    maxWidth: '500px',
+  },
+}));
+
+const MyComponent = () => {
+  const classes = useStyles();
+
+  return (
+    <Card className={classes.card}>
+      <Typography variant="h5">Hello React Coder!</Typography>
+    </Card>
+  );
+};
 
 export default MyComponent;
 """.strip()
@@ -327,23 +378,41 @@ def get_styling_import(styling, component_name=None):
 
 
 def get_theme_content(language):
-    return f"""
-import {{ createTheme, Theme as MuiTheme }} from '@mui/material/styles';
+    if language == "TypeScript":
+        return """
+import { createTheme, Theme as MuiTheme } from '@mui/material/styles';
 
-{'declare module "@mui/styles/defaultTheme" {' if language == 'TypeScript' else ''}
-{'  interface DefaultTheme extends MuiTheme {}' if language == 'TypeScript' else ''}
-{'  }' if language == 'TypeScript' else ''}
+declare module "@mui/styles/defaultTheme" {
+  interface DefaultTheme extends MuiTheme {}
+}
 
-const theme{': MuiTheme' if language == 'TypeScript' else ''} = createTheme({{
-    palette: {{
-        primary: {{
+const theme: MuiTheme = createTheme({
+    palette: {
+        primary: {
             main: '#1976d2',
-        }},
-        secondary: {{
+        },
+        secondary: {
             main: '#dc004e',
-        }},
-    }},
-}});
+        },
+    },
+});
+
+export default theme;
+""".strip()
+    else:
+        return """
+import { createTheme } from '@mui/material/styles';
+
+const theme = createTheme({
+    palette: {
+        primary: {
+            main: '#1976d2',
+        },
+        secondary: {
+            main: '#dc004e',
+        },
+    },
+});
 
 export default theme;
 """.strip()
@@ -375,6 +444,7 @@ def get_package_json_content(language, styling):
         "lint": "eslint .",
         "format": "prettier --write .",
     }
+    browsers = {"production": [">0.2%", "not dead", "not op_mini all"], "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]}
 
     if language == "TypeScript":
         dependencies.update(
@@ -434,6 +504,7 @@ def get_package_json_content(language, styling):
             "dependencies": dependencies,
             "devDependencies": dev_dependencies,
             "scripts": scripts,
+            "browserslist": browsers,
         },
         indent=2,
     ).strip()
@@ -487,6 +558,42 @@ def run_typescript_check(base_path):
         os.chdir(original_dir)
 
 
+async def run_typescript_checks(base_path):
+    print("Running initial TypeScript check...")
+
+    initial_check = run_typescript_check(base_path)
+
+    if initial_check:
+        print("Initial TypeScript check passed.")
+    else:
+        print("Initial TypeScript check failed. This may be due to initialization. We'll check again shortly.")
+
+    print("Waiting for TypeScript server to fully initialize...")
+
+    await asyncio.sleep(5)
+
+    print("Running final TypeScript check...")
+
+    final_check = run_typescript_check(base_path)
+
+    if final_check:
+        print("Final TypeScript check passed.")
+    else:
+        print("TypeScript errors persisted after the final check.")
+        print("Try closing and reopening your editor, or run 'yarn tsc' in the project directory for more details.")
+
+
+def find_available_port(start_port=3000, max_port=3010):
+    for port in range(start_port, max_port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("localhost", port))
+                return port
+            except socket.error:
+                continue
+    return None
+
+
 def create_react_app_structure(language, styling, launch_browser):
     base_path = Path(__file__).resolve().parents[4] / "apps" / "ui"
 
@@ -495,6 +602,11 @@ def create_react_app_structure(language, styling, launch_browser):
         "public",
         "src/components",
     ]
+
+    if delete_directory_recursive(base_path):
+        print(f"Existing UI folder at {base_path} has been deleted.")
+
+    base_path.mkdir(parents=True, exist_ok=True)
 
     for folder in folders:
         os.makedirs(base_path / folder, exist_ok=True)
@@ -567,9 +679,7 @@ def create_react_app_structure(language, styling, launch_browser):
         success = True
         print("React app structure created successfully. You can start it manually later.")
 
-    print(message)
-
-    return base_path, success
+    return base_path, success, message
 
 
 def start_react_app(base_path):
@@ -579,12 +689,19 @@ def start_react_app(base_path):
 
         print("Starting the React app. This may take a moment...")
 
-        process = subprocess.Popen(["yarn", "start"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        port = find_available_port()
+        if port is None:
+            return False, "No available ports found between 3000 and 3010."
+
+        env = os.environ.copy()
+        env["PORT"] = str(port)
+
+        process = subprocess.Popen(["yarn", "start"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
 
         for line in process.stdout:
             print(line, end="", flush=True)
             if "Compiled successfully" in line or "You can now view" in line:
-                return True, "React app started successfully. You can view it at http://localhost:3000"
+                return True, f"React app started successfully. You can view it at http://localhost:{port}"
 
         error_output = process.stderr.read()
         return False, f"Failed to start React app. Error: {error_output}"
@@ -592,6 +709,18 @@ def start_react_app(base_path):
         return False, f"An error occurred while starting the React app: {str(e)}"
     finally:
         os.chdir(original_dir)
+
+
+def delete_directory_recursive(directory_path):
+    try:
+        path = Path(directory_path)
+        if path.exists() and path.is_dir():
+            shutil.rmtree(path)
+            return True
+        return False
+    except Exception as e:
+        print(f"An error occurred while trying to delete the directory: {e}")
+        return False
 
 
 class CreateReactComponentCommand(BaseCommand):
@@ -613,24 +742,26 @@ class CreateReactComponentCommand(BaseCommand):
 
         self.console.print("Creating React app structure...", style="bold green")
 
-        base_path, success = create_react_app_structure(language, styling, launch_browser)
+        base_path, success, message = create_react_app_structure(language, styling, launch_browser)
 
         self.console.print(f"React app structure created successfully at {base_path}", style="bold green")
         self.console.print("ESLint and Prettier have been run on the generated files.", style="bold green")
 
         if language == "TypeScript":
+            await run_typescript_checks(base_path)
             self.console.print("TypeScript compilation check has been run.", style="bold green")
             self.console.print(
-                "If you encounter any TypeScript errors, please run try closing your editor and opening it again or running 'yarn tsc' in the project directory for more details.",
+                "If you encounter any TypeScript errors, please try closing your editor and opening it again or running 'yarn tsc' in the project directory for more details.",
                 style="bold yellow",
             )
 
         if launch_browser:
             if success:
-                self.console.print("The React app has been started successfully and opened in your default browser.", style="bold green")
+                self.console.print(message, style="bold green")
                 self.console.print("To stop the app, press Ctrl+C in this console.", style="bold green")
             else:
                 self.console.print("The React app structure was created, but there was an issue starting the app.", style="bold yellow")
+                self.console.print(message, style="bold yellow")
                 self.console.print("You can try starting it manually by navigating to the app directory and running 'yarn start'.", style="bold yellow")
         else:
             self.console.print("To start the app later, navigate to the app directory and run 'yarn start'.", style="bold green")
