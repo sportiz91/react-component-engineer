@@ -1,10 +1,13 @@
 import asyncio
 import sys
 from pathlib import Path
+from typing import List
+from os import PathLike
+from typing import Coroutine, NoReturn
 
 
-project_root = Path(__file__).resolve().parents[3]
-src_path = project_root / "src"
+project_root: PathLike = Path(__file__).resolve().parents[3]
+src_path: PathLike = project_root / "src"
 
 sys.path.append(str(project_root))
 sys.path.append(str(src_path))
@@ -13,8 +16,8 @@ sys.path.append(str(src_path))
 from src.apps.console.classes.console_app import ConsoleApp
 
 
-async def main():
-    app = ConsoleApp()
+async def main() -> Coroutine[None, None, NoReturn]:
+    app: ConsoleApp = ConsoleApp()
     await app.run()
 
 

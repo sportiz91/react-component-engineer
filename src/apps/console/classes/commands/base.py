@@ -1,15 +1,16 @@
 from abc import ABC, abstractmethod
+from typing import Any, Coroutine
 
 from rich.console import Console
 
 
 class BaseCommand(ABC):
-    def __init__(self, app):
-        self.app = app
+    def __init__(self, app: Any) -> None:
+        self.app: Any = app
         self.console: Console = app.console
 
     @abstractmethod
-    async def execute(self, *args, **kwargs):
+    async def execute(self, *args: Any, **kwargs: Any) -> Coroutine[Any, Any, None]:
         pass
 
     @property

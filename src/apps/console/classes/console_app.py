@@ -1,6 +1,7 @@
 import importlib
 import pkgutil
-from typing import Dict
+from typing import Dict, Any
+from types import ModuleType
 
 from rich.console import Console
 from rich.panel import Panel
@@ -9,23 +10,23 @@ from src.apps.console.classes.commands.base import BaseCommand
 from src.libs.helpers.console import get_user_input
 
 
-def load_commands(app) -> Dict[str, BaseCommand]:
-    commands = {}
-    package = importlib.import_module("src.apps.console.classes.commands")
+def load_commands(app: "ConsoleApp") -> Dict[str, BaseCommand]:
+    commands: Dict[str, BaseCommand] = {}
+    package: ModuleType = importlib.import_module("src.apps.console.classes.commands")
     for _, module_name, _ in pkgutil.iter_modules(package.__path__):
-        module = importlib.import_module(f"src.apps.console.classes.commands.{module_name}")
+        module: ModuleType = importlib.import_module(f"src.apps.console.classes.commands.{module_name}")
         for item_name in dir(module):
-            item = getattr(module, item_name)
+            item: Any = getattr(module, item_name)
             if isinstance(item, type) and issubclass(item, BaseCommand) and item is not BaseCommand:
-                command = item(app)
+                command: BaseCommand = item(app)
                 commands[command.name] = command
     return commands
 
 
 class ConsoleApp:
     def __init__(self):
-        self.console = Console()
-        self.running = True
+        self.console: Console = Console()
+        self.running: bool = True
         self.commands: Dict[str, BaseCommand] = load_commands(self)
 
     async def run(self) -> None:
@@ -34,8 +35,8 @@ class ConsoleApp:
 
         while self.running:
             try:
-                user_input = await get_user_input("You: ")
-                command = user_input.lower().strip()
+                user_input: str = await get_user_input("You: ")
+                command: str = user_input.lower().strip()
 
                 if command in self.commands:
                     await self.commands[command].execute()
