@@ -5,13 +5,15 @@ import subprocess
 import shutil
 import asyncio
 import socket
+from typing import Literal, Optional, Tuple, List, Dict, Union, Any
 
 
 from src.apps.console.classes.commands.base import BaseCommand
 from src.libs.helpers.console import get_user_input
 
 
-INDEX_HTML_CONTENT = """
+INDEX_HTML_CONTENT: str = (
+    """
   <html lang="en">
   <head>
       <meta charset="utf-8" />
@@ -24,9 +26,11 @@ INDEX_HTML_CONTENT = """
   </body>
   </html>
 """.strip()
+)
 
 
-GITIGNORE_CONTENT = """\
+GITIGNORE_CONTENT: str = (
+    """\
 # Dependencies
 /node_modules
 
@@ -44,18 +48,24 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 """.strip()
+)
 
-ENV_CONTENT = """\
+ENV_CONTENT: str = (
+    """\
 REACT_APP_API_URL=http://localhost:3000
 REACT_APP_ENV=development
 """.strip()
+)
 
-ENV_EXAMPLE_CONTENT = """\
+ENV_EXAMPLE_CONTENT: str = (
+    """\
 REACT_APP_API_URL=http://example.com/api
 REACT_APP_ENV=production
 """.strip()
+)
 
-README_CONTENT = """\
+README_CONTENT: str = (
+    """\
 # React App
 
 This project was bootstrapped with a custom React app generator.
@@ -77,14 +87,18 @@ Launches the test runner in the interactive watch mode.
 
 Builds the app for production to the `build` folder.
 """.strip()
+)
 
-ESLINTIGNORE_CONTENT = """\
+ESLINTIGNORE_CONTENT: str = (
+    """\
 node_modules
 build
 **/*.html
 """.strip()
+)
 
-ESLINTRC_CONTENT = """\
+ESLINTRC_CONTENT: str = (
+    """\
 {
   "extends": [
     "react-app",
@@ -107,14 +121,18 @@ ESLINTRC_CONTENT = """\
   }
 }
 """.strip()
+)
 
-PRETTIERIGNORE_CONTENT = """\
+PRETTIERIGNORE_CONTENT: str = (
+    """\
 node_modules
 build
 coverage
 """.strip()
+)
 
-PRETTIERRC_CONTENT = """\
+PRETTIERRC_CONTENT: str = (
+    """\
 {
   "semi": true,
   "singleQuote": true,
@@ -122,8 +140,10 @@ PRETTIERRC_CONTENT = """\
   "trailingComma": "es5"
 }
 """.strip()
+)
 
-TAILWIND_CONFIG_CONTENT = """
+TAILWIND_CONFIG_CONTENT: str = (
+    """
 module.exports = {
   content: [
     "./src/**/*.{js,jsx,ts,tsx}",
@@ -135,8 +155,10 @@ module.exports = {
   plugins: [],
 }
 """.strip()
+)
 
-POSTCSS_CONFIG_CONTENT = """
+POSTCSS_CONFIG_CONTENT: str = (
+    """
 module.exports = {
   plugins: {
     tailwindcss: {},
@@ -144,8 +166,10 @@ module.exports = {
   },
 }
 """.strip()
+)
 
-CRACO_CONFIG_CONTENT = """
+CRACO_CONFIG_CONTENT: str = (
+    """
 const path = require('path');
 
 module.exports = {
@@ -161,15 +185,19 @@ module.exports = {
   },
 };
 """.strip()
+)
 
 
-INDEX_CSS_CONTENT = """
+INDEX_CSS_CONTENT: str = (
+    """
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 """.strip()
+)
 
-TSCONFIG_CONTENT = """\
+TSCONFIG_CONTENT: str = (
+    """\
 {
   "compilerOptions": {
     "target": "es5",
@@ -192,8 +220,10 @@ TSCONFIG_CONTENT = """\
   "include": ["src"]
 }
 """.strip()
+)
 
-CSS_MODULE_DECLARATION_CONTENT = """\
+CSS_MODULE_DECLARATION_CONTENT: str = (
+    """\
 /// <reference types="react-scripts" />
 
 declare module '*.module.css' {
@@ -201,10 +231,12 @@ declare module '*.module.css' {
   export default classes;
 }
 """.strip()
+)
 
 
-def get_index_content(language, styling):
-    content = f"""
+def get_index_content(language: Literal["JavaScript", "TypeScript"], styling: Literal["CSS Modules", "Tailwind", "Material UI"]) -> str:
+    content: str = (
+        f"""
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 {"import './index.css';" if styling == "Tailwind" else ""}
@@ -217,10 +249,11 @@ root.render(
   </React.StrictMode>
 );
 """.strip()
+    )
     return content
 
 
-def get_app_content(language, styling):
+def get_app_content(language: Literal["JavaScript", "TypeScript"], styling: Literal["CSS Modules", "Tailwind", "Material UI"]) -> str:
     if styling == "Material UI":
         if language == "TypeScript":
             return """
@@ -276,7 +309,7 @@ export default App;
 """.strip()
 
 
-def get_component_content(language, styling):
+def get_component_content(language: Literal["JavaScript", "TypeScript"], styling: Literal["CSS Modules", "Tailwind", "Material UI"]) -> str:
     if styling == "Material UI":
         if language == "TypeScript":
             return """
@@ -367,17 +400,16 @@ export default MyComponent;
 """.strip()
 
 
-def get_styling_import(styling, component_name=None):
+def get_styling_import(styling: Literal["CSS Modules", "Tailwind", "Material UI"], component_name: Optional[str] = None) -> str:
     if styling == "CSS Modules":
         return f"import styles from './{component_name or 'App'}.module.css';".strip() if component_name else "".strip()
     elif styling == "Tailwind":
         return "".strip()
     elif styling == "Material UI":
         return "import { ThemeProvider, createTheme } from '@mui/material/styles';".strip()
-    return "".strip()
 
 
-def get_theme_content(language):
+def get_theme_content(language: Literal["JavaScript", "TypeScript"]) -> str:
     if language == "TypeScript":
         return """
 import { createTheme, Theme as MuiTheme } from '@mui/material/styles';
@@ -418,7 +450,7 @@ export default theme;
 """.strip()
 
 
-def get_styling_class(styling):
+def get_styling_class(styling: Literal["CSS Modules", "Tailwind", "Material UI"]) -> str:
     if styling == "CSS Modules":
         return " className={styles.myComponent}".strip()
     elif styling == "Tailwind":
@@ -426,7 +458,7 @@ def get_styling_class(styling):
     return ""
 
 
-def get_package_json_content(language, styling):
+def get_package_json_content(language: Literal["JavaScript", "TypeScript"], styling: Literal["CSS Modules", "Tailwind", "Material UI"]) -> str:
     dependencies = {
         "react": "^18.2.0",
         "react-dom": "^18.2.0",
@@ -510,8 +542,8 @@ def get_package_json_content(language, styling):
     ).strip()
 
 
-def run_eslint_prettier(base_path):
-    original_dir = os.getcwd()
+def run_eslint_prettier(base_path: str) -> Tuple[bool, str]:
+    original_dir: str = os.getcwd()
     try:
         os.chdir(base_path)
 
@@ -519,17 +551,17 @@ def run_eslint_prettier(base_path):
             return False, "Yarn is not installed. Please install Yarn and try again."
 
         print("Running yarn install...")
-        install_result = subprocess.run(["yarn", "install", "--force"], capture_output=True, text=True)
+        install_result: subprocess.CompletedProcess[str] = subprocess.run(["yarn", "install", "--force"], capture_output=True, text=True)
         if install_result.returncode != 0:
             return False, f"Error during yarn install:\n{install_result.stderr}"
 
         print("Running ESLint...")
-        eslint_result = subprocess.run(["yarn", "run", "lint", "--fix"], capture_output=True, text=True)
+        eslint_result: subprocess.CompletedProcess[str] = subprocess.run(["yarn", "run", "lint", "--fix"], capture_output=True, text=True)
         if eslint_result.returncode != 0:
             return False, f"ESLint encountered issues:\n{eslint_result.stderr}"
 
         print("Running Prettier...")
-        prettier_result = subprocess.run(["yarn", "run", "format"], capture_output=True, text=True)
+        prettier_result: subprocess.CompletedProcess[str] = subprocess.run(["yarn", "run", "format"], capture_output=True, text=True)
         if prettier_result.returncode != 0:
             return False, f"Prettier encountered issues:\n{prettier_result.stderr}"
 
@@ -542,11 +574,11 @@ def run_eslint_prettier(base_path):
         os.chdir(original_dir)
 
 
-def run_typescript_check(base_path):
-    original_dir = os.getcwd()
+def run_typescript_check(base_path: str) -> bool:
+    original_dir: str = os.getcwd()
     try:
         os.chdir(base_path)
-        result = subprocess.run(["yarn", "run", "tsc"], capture_output=True, text=True)
+        result: subprocess.CompletedProcess[str] = subprocess.run(["yarn", "run", "tsc"], capture_output=True, text=True)
         if result.returncode != 0:
             print(f"TypeScript check failed:\n{result.stdout}\n{result.stderr}")
             return False
@@ -558,10 +590,10 @@ def run_typescript_check(base_path):
         os.chdir(original_dir)
 
 
-async def run_typescript_checks(base_path):
+async def run_typescript_checks(base_path: str) -> None:
     print("Running initial TypeScript check...")
 
-    initial_check = run_typescript_check(base_path)
+    initial_check: bool = run_typescript_check(base_path)
 
     if initial_check:
         print("Initial TypeScript check passed.")
@@ -574,7 +606,7 @@ async def run_typescript_checks(base_path):
 
     print("Running final TypeScript check...")
 
-    final_check = run_typescript_check(base_path)
+    final_check: bool = run_typescript_check(base_path)
 
     if final_check:
         print("Final TypeScript check passed.")
@@ -583,7 +615,7 @@ async def run_typescript_checks(base_path):
         print("Try closing and reopening your editor, or run 'yarn tsc' in the project directory for more details.")
 
 
-def find_available_port(start_port=3000, max_port=3010):
+def find_available_port(start_port: int = 3000, max_port: int = 3010) -> Optional[int]:
     for port in range(start_port, max_port):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
@@ -594,10 +626,12 @@ def find_available_port(start_port=3000, max_port=3010):
     return None
 
 
-def create_react_app_structure(language, styling, launch_browser):
-    base_path = Path(__file__).resolve().parents[4] / "apps" / "ui"
+def create_react_app_structure(
+    language: Literal["JavaScript", "TypeScript"], styling: Literal["CSS Modules", "Tailwind", "Material UI"], launch_browser: bool
+) -> Tuple[Path, bool, str]:
+    base_path: Path = Path(__file__).resolve().parents[4] / "apps" / "ui"
 
-    folders = [
+    folders: List[str] = [
         "src",
         "public",
         "src/components",
@@ -611,9 +645,9 @@ def create_react_app_structure(language, styling, launch_browser):
     for folder in folders:
         os.makedirs(base_path / folder, exist_ok=True)
 
-    language_extension = "js" if language == "JavaScript" else "tsx"
+    language_extension: str = "js" if language == "JavaScript" else "tsx"
 
-    main_files = {
+    main_files: Dict[str, str] = {
         "public/index.html": INDEX_HTML_CONTENT,
         f"src/index.{language_extension}": get_index_content(language, styling),
         f"src/App.{language_extension}": get_app_content(language, styling),
@@ -645,12 +679,12 @@ def create_react_app_structure(language, styling, launch_browser):
         )
 
     if styling == "Material UI":
-        theme_extension = "ts" if language == "TypeScript" else "js"
+        theme_extension: str = "ts" if language == "TypeScript" else "js"
         main_files[f"src/theme.{theme_extension}"] = get_theme_content(language)
 
     for file_path, content in main_files.items():
         try:
-            file_full_path = base_path / file_path
+            file_full_path: Path = base_path / file_path
             os.makedirs(file_full_path.parent, exist_ok=True)
             with open(file_full_path, "w") as f:
                 f.write(content)
@@ -661,6 +695,8 @@ def create_react_app_structure(language, styling, launch_browser):
         with open(base_path / "src/components/MyComponent.module.css", "w") as f:
             f.write(".myComponent {\n  /* Add your styles here */\n}")
 
+    success: bool
+    message: str
     success, message = run_eslint_prettier(base_path)
 
     if not success:
@@ -682,27 +718,29 @@ def create_react_app_structure(language, styling, launch_browser):
     return base_path, success, message
 
 
-def start_react_app(base_path):
-    original_dir = os.getcwd()
+def start_react_app(base_path: str) -> Tuple[bool, str]:
+    original_dir: str = os.getcwd()
     try:
         os.chdir(base_path)
 
         print("Starting the React app. This may take a moment...")
 
-        port = find_available_port()
+        port: Optional[int] = find_available_port()
         if port is None:
             return False, "No available ports found between 3000 and 3010."
 
-        env = os.environ.copy()
+        env: Dict[str, str] = os.environ.copy()
         env["PORT"] = str(port)
 
-        process = subprocess.Popen(["yarn", "start"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+        process: subprocess.Popen[str] = subprocess.Popen(["yarn", "start"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
 
+        assert process.stdout is not None, "stdout should not be None"
         for line in process.stdout:
             print(line, end="", flush=True)
             if "Compiled successfully" in line or "You can now view" in line:
                 return True, f"React app started successfully. You can view it at http://localhost:{port}"
 
+        assert process.stderr is not None, "stderr should not be None"
         error_output = process.stderr.read()
         return False, f"Failed to start React app. Error: {error_output}"
     except Exception as e:
@@ -711,9 +749,9 @@ def start_react_app(base_path):
         os.chdir(original_dir)
 
 
-def delete_directory_recursive(directory_path):
+def delete_directory_recursive(directory_path: Union[str, Path]) -> bool:
     try:
-        path = Path(directory_path)
+        path: Path = Path(directory_path)
         if path.exists() and path.is_dir():
             shutil.rmtree(path)
             return True
@@ -724,31 +762,38 @@ def delete_directory_recursive(directory_path):
 
 
 class CreateReactComponentCommand(BaseCommand):
-    name = "create react component"
-    description = "Create a new React component"
+    name: str = "create react component"
+    description: str = "Create a new React component"
 
-    async def execute(self, *args, **kwargs):
-        description = await get_user_input("Please enter a description of the component: ")
+    async def execute(self, *args: Any, **kwargs: Any) -> None:
+        description: str = await get_user_input("Please enter a description of the component: ")
         self.console.print(f"Component description: {description}", style="bold green")
 
-        language = await get_user_input("Do you want to use JavaScript or TypeScript?", choices=["JavaScript", "TypeScript"], default="JavaScript")
+        language: Literal["JavaScript", "TypeScript"] = await get_user_input(
+            "Do you want to use JavaScript or TypeScript?", choices=["JavaScript", "TypeScript"], default="JavaScript"
+        )
         self.console.print(f"You chose: {language}", style="bold green")
 
-        styling = await get_user_input("Which styling option do you prefer?", choices=["CSS Modules", "Tailwind", "Material UI"], default="CSS Modules")
+        styling: Literal["CSS Modules", "Tailwind", "Material UI"] = await get_user_input(
+            "Which styling option do you prefer?", choices=["CSS Modules", "Tailwind", "Material UI"], default="CSS Modules"
+        )
         self.console.print(f"You chose: {styling}", style="bold green")
 
-        launch_browser = await get_user_input("Do you want to start the app and open it in the browser after creation?", choices=["Yes", "No"], default="Yes")
-        launch_browser = launch_browser.lower() == "yes"
+        launch_browser: str = await get_user_input("Do you want to start the app and open it in the browser after creation?", choices=["Yes", "No"], default="Yes")
+        launch_browser: bool = launch_browser.lower() == "yes"
 
         self.console.print("Creating React app structure...", style="bold green")
 
+        base_path: Path
+        success: bool
+        message: str
         base_path, success, message = create_react_app_structure(language, styling, launch_browser)
 
         self.console.print(f"React app structure created successfully at {base_path}", style="bold green")
         self.console.print("ESLint and Prettier have been run on the generated files.", style="bold green")
 
         if language == "TypeScript":
-            await run_typescript_checks(base_path)
+            await run_typescript_checks(str(base_path))
             self.console.print("TypeScript compilation check has been run.", style="bold green")
             self.console.print(
                 "If you encounter any TypeScript errors, please try closing your editor and opening it again or running 'yarn tsc' in the project directory for more details.",
