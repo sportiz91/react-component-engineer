@@ -164,6 +164,19 @@ class PromptConstructorCommand(BaseCommand):
                         module_path = module_path.with_name(module_path.stem + ".py")
                     if module_path.exists():
                         imports.append(module_path)
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "import_module":
+                if len(node.args) > 0 and isinstance(node.args[0], ast.Str):
+                    module_name = node.args[0].s
+                    if module_name.startswith(("src.", "apps.")):
+                        module_path = self.project_root / Path(*module_name.split("."))
+                        if module_path.is_dir():
+                            for file in module_path.rglob("*.py"):
+                                if file.is_file():
+                                    imports.append(file)
+                        else:
+                            py_file = module_path.with_suffix(".py")
+                            if py_file.exists():
+                                imports.append(py_file)
 
         return imports
 
