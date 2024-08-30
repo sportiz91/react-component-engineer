@@ -8,6 +8,7 @@ import fnmatch
 from src.apps.console.classes.commands.base import BaseCommand
 from src.libs.helpers.console import get_user_input
 from src.libs.utils.string import wrap_text
+from src.libs.utils.constants import CODE_CHANGES, ENTIRE_FILE
 
 NAME: str = "prompt"
 DESCRIPTION: str = "Construct a prompt log file from given Python files or all files in specified folders"
@@ -28,6 +29,13 @@ class PromptConstructorCommand(BaseCommand):
 
         mode = await get_user_input("Enter mode: ", choices=["all", "traverse"], default="all") or "all"
         self.set_mode(mode)
+
+        entire_file_vs_code_differences = (
+            await get_user_input(
+                "Do you want to output the entire file(s) with the change(s) or only the code differences?: ", choices=["entire", "differences"], default="differences"
+            )
+            or "differences"
+        )
 
         prompt_log = self.project_root / "prompt.log"
 
@@ -52,6 +60,12 @@ class PromptConstructorCommand(BaseCommand):
                 if closing_message:
                     log_file.write(f"\n{wrap_text(closing_message)}")
 
+                if entire_file_vs_code_differences == "differences":
+                    log_file.write(f"\n{wrap_text(CODE_CHANGES)}")
+
+                elif entire_file_vs_code_differences == "entire":
+                    log_file.write(f"\n{wrap_text(ENTIRE_FILE)}")
+
             elif mode == "all":
                 folder_paths = await get_user_input("Enter the folder paths (space-separated, e.g., src/apps/console src/libs): ")
                 folders = [self.project_root / folder.strip() for folder in folder_paths.split()]
@@ -66,6 +80,12 @@ class PromptConstructorCommand(BaseCommand):
 
                 if closing_message:
                     log_file.write(f"\n{wrap_text(closing_message)}")
+
+                if entire_file_vs_code_differences == "differences":
+                    log_file.write(f"\n{wrap_text(CODE_CHANGES)}")
+
+                elif entire_file_vs_code_differences == "entire":
+                    log_file.write(f"\n{wrap_text(ENTIRE_FILE)}")
 
             else:
                 self.console.print(f"Invalid mode: {mode}", style="bold red")
