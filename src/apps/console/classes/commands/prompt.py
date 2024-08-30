@@ -9,7 +9,7 @@ from src.apps.console.classes.commands.base import BaseCommand
 from src.libs.helpers.console import get_user_input
 from src.libs.utils.string import wrap_text
 
-NAME: str = "prompt constructor"
+NAME: str = "prompt"
 DESCRIPTION: str = "Construct a prompt log file from given Python files or all files in specified folders"
 PROJECT_ROOT: Path = Path(__file__).resolve().parents[5]
 PROCESSED_FILES: Set[Path] = set()
