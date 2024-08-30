@@ -1,7 +1,10 @@
 from typing import List, Optional
 
+from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit import PromptSession
 from prompt_toolkit.styles import Style
+from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.keys import Keys
 from rich.console import Console
 
 style: Style = Style.from_dict(
@@ -12,8 +15,28 @@ style: Style = Style.from_dict(
 session: PromptSession[str] = PromptSession(style=style)
 console: Console = Console()
 
+kb = KeyBindings()
+
+
+@kb.add("c-m")
+def _(event):
+    if event.app.current_buffer.multiline:
+        event.app.exit(result=event.app.current_buffer.text)
+    else:
+        event.current_buffer.insert_text("\n")
+
+
+@kb.add(Keys.Enter)
+def _(event):
+    if event.app.current_buffer.multiline():
+        event.current_buffer.insert_text("\n")
+    else:
+        event.app.exit(result=event.app.current_buffer.text)
+
 
 async def get_user_input(prompt: str, choices: Optional[List[str]] = None, default: Optional[str] = None, multiline: bool = False) -> str:
+    global session
+
     if choices:
         while True:
             console.print(prompt)
@@ -37,4 +60,8 @@ async def get_user_input(prompt: str, choices: Optional[List[str]] = None, defau
             except ValueError:
                 console.print("Invalid input. Please enter a number.", style="bold red")
     else:
-        return await session.prompt_async(prompt, multiline=multiline)
+        if not multiline:
+            return await session.prompt_async(prompt, multiline=multiline)
+
+        message = HTML(f"<prompt>{f"{prompt} (ESC + ENTER to submit): "}</prompt>\n")
+        return await session.prompt_async(message, multiline=multiline, key_bindings=kb, wrap_lines=True)

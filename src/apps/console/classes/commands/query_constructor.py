@@ -7,6 +7,7 @@ import fnmatch
 
 from src.apps.console.classes.commands.base import BaseCommand
 from src.libs.helpers.console import get_user_input
+from src.libs.utils.string import wrap_text
 
 NAME: str = "prompt constructor"
 DESCRIPTION: str = "Construct a prompt log file from given Python files or all files in specified folders"
@@ -43,11 +44,14 @@ class PromptConstructorCommand(BaseCommand):
                 starting_message = await self.get_starting_message()
                 closing_message = await self.get_closing_message()
 
-                log_file.write(f"{starting_message}\n\n")
+                if starting_message:
+                    log_file.write(f"{wrap_text(starting_message)}\n\n")
 
                 self.process_file(start_file, log_file)
 
-                log_file.write(f"\n{closing_message}\n")
+                if closing_message:
+                    log_file.write(f"\n{wrap_text(closing_message)}")
+
             elif mode == "all":
                 folder_paths = await get_user_input("Enter the folder paths (space-separated, e.g., src/apps/console src/libs): ")
                 folders = [self.project_root / folder.strip() for folder in folder_paths.split()]
@@ -55,10 +59,14 @@ class PromptConstructorCommand(BaseCommand):
                 starting_message = await self.get_starting_message()
                 closing_message = await self.get_closing_message()
 
-                log_file.write(f"{starting_message}\n\n")
+                if starting_message:
+                    log_file.write(f"{wrap_text(starting_message)}\n\n")
+
                 self.process_multiple_folders(folders, log_file)
 
-                log_file.write(f"\n{closing_message}\n")
+                if closing_message:
+                    log_file.write(f"\n{wrap_text(closing_message)}")
+
             else:
                 self.console.print(f"Invalid mode: {mode}", style="bold red")
                 return
@@ -66,10 +74,10 @@ class PromptConstructorCommand(BaseCommand):
         self.console.print(f"prompt log has been written to {prompt_log}", style="bold green")
 
     async def get_starting_message(self) -> str:
-        return await get_user_input("Enter a message to be written at the beginning of the prompt.log file: ")
+        return await get_user_input("Enter a message to be written at the beginning of the prompt.log file", multiline=True)
 
     async def get_closing_message(self) -> str:
-        return await get_user_input("Enter a message to be written at the end of the prompt.log file: ")
+        return await get_user_input("Enter a message to be written at the end of the prompt.log file", multiline=True)
 
     def parse_gitignore(self) -> List[str]:
         gitignore_path = self.project_root / ".gitignore"
