@@ -13,7 +13,7 @@ NAME: str = "prompt constructor"
 DESCRIPTION: str = "Construct a prompt log file from given Python files or all files in specified folders"
 PROJECT_ROOT: Path = Path(__file__).resolve().parents[5]
 PROCESSED_FILES: Set[Path] = set()
-ALLOWED_FILES: List[str] = [".gitignore", ".env.example"]
+ALLOWED_FILES: List[str] = [".gitignore", ".env.example", "pyproject.toml", ".flake8"]
 
 
 class PromptConstructorCommand(BaseCommand):
