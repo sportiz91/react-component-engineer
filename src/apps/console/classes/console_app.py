@@ -39,7 +39,11 @@ class ConsoleApp:
                 command: str = user_input.lower().strip()
 
                 if command in self.commands:
-                    await self.commands[command].execute()
+                    try:
+                        await self.commands[command].execute()
+                    except KeyboardInterrupt:
+                        self.console.print("\nCommand execution stopped. Going back to main menu.", style="bold yellow")
+                        continue
                 elif command == "exit":
                     await self.cmd_exit()
                 else:
