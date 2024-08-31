@@ -199,12 +199,36 @@ class PromptConstructorCommand(BaseCommand):
         with open(import_path, "r", encoding="utf-8") as source_file:
             content = source_file.read()
 
-        log_file.write(f"--- Filename {import_path.relative_to(self.project_root)} ---\n\n")
-        log_file.write(content)
-        log_file.write("\n\n")
-
         unused_ranges = self.get_unused_code(content, imported_names, import_path)
-        self.remove_unused_code_from_log(log_file, import_path, unused_ranges)
+
+        # Remove unused code from the content
+        lines = content.split("\n")
+        lines_to_remove = set()
+        for start, end in unused_ranges:
+            lines_to_remove.update(range(start - 1, end))
+        new_lines = [line for i, line in enumerate(lines) if i not in lines_to_remove]
+
+        # Compress blank lines
+        compressed_lines = []
+        blank_line_count = 0
+        for line in new_lines:
+            if line.strip():
+                if blank_line_count > 0:
+                    compressed_lines.extend([""] * min(blank_line_count, 2))
+                compressed_lines.append(line)
+                blank_line_count = 0
+            else:
+                blank_line_count += 1
+
+        # Remove trailing blank lines
+        while compressed_lines and not compressed_lines[-1].strip():
+            compressed_lines.pop()
+
+        new_content = "\n".join(compressed_lines)
+
+        log_file.write(f"--- Filename {import_path.relative_to(self.project_root)} ---\n\n")
+        log_file.write(new_content)
+        log_file.write("\n\n")
 
         new_imports = self.get_local_imports(import_path)
         for new_import_path, new_imported_names in new_imports.items():
@@ -224,16 +248,18 @@ class PromptConstructorCommand(BaseCommand):
 
         for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
-                # Consider decorated functions as used
-                if node.decorator_list or node.name in used_names:
-                    used_names.add(node.name)
-                else:
+                if node.decorator_list:
+                    # Keep decorated functions/classes
+                    continue
+                elif node.name not in used_names:
                     unused_ranges.append((node.lineno, node.end_lineno))
+                    print(f"Unused function/class: {node.name} (lines {node.lineno}-{node.end_lineno})")
             elif isinstance(node, ast.Assign):
-                all_targets_unused = all(isinstance(target, ast.Name) and target.id not in used_names for target in node.targets)
-                if all_targets_unused:
+                if all(not isinstance(target, ast.Name) or target.id not in used_names for target in node.targets):
                     unused_ranges.append((node.lineno, node.end_lineno))
+                    print(f"Unused assignment: {ast.unparse(node)} (lines {node.lineno}-{node.end_lineno})")
 
+        print(f"Unused ranges for {file_path}: {unused_ranges}")  # Debug print
         return unused_ranges
 
     def is_used_internally(self, node: ast.AST, defined_names: Set[str], tree: ast.AST) -> bool:
@@ -246,23 +272,48 @@ class PromptConstructorCommand(BaseCommand):
         log_file.seek(0)
         content = log_file.read()
         file_marker = f"--- Filename {file_path.relative_to(self.project_root)} ---"
-        file_content_match = re.search(f"{re.escape(file_marker)}.*?(?=--- Filename|\Z)", content, re.DOTALL)
+        pattern = re.compile(f"{re.escape(file_marker)}.*?(?=--- Filename|\Z)", re.DOTALL)
+        match = pattern.search(content)
 
-        if file_content_match:
-            file_content = file_content_match.group(0)
+        if match:
+            file_content = match.group(0)
             lines = file_content.split("\n")
-            to_remove = set()
 
-            for start_line, end_line in unused_ranges:
-                to_remove.update(range(start_line - 1, end_line))  # Convert to 0-indexed
+            # Create a set of line numbers to remove
+            lines_to_remove = set()
+            for start, end in unused_ranges:
+                lines_to_remove.update(range(start - 1, end))  # Convert to 0-indexed
 
-            new_lines = [line for i, line in enumerate(lines) if i not in to_remove]
-            new_file_content = "\n".join(new_lines)
+            # Keep only the lines that are not in lines_to_remove
+            new_lines = [line for i, line in enumerate(lines) if i not in lines_to_remove]
 
-            updated_content = content.replace(file_content_match.group(0), new_file_content)
+            # Remove excessive blank lines
+            compressed_lines = []
+            blank_line_count = 0
+            for line in new_lines:
+                if line.strip():
+                    if blank_line_count > 0:
+                        compressed_lines.extend([""] * min(blank_line_count, 2))
+                    compressed_lines.append(line)
+                    blank_line_count = 0
+                else:
+                    blank_line_count += 1
+
+            # Remove trailing blank lines
+            while compressed_lines and not compressed_lines[-1].strip():
+                compressed_lines.pop()
+
+            new_file_content = "\n".join([file_marker] + compressed_lines)
+            updated_content = pattern.sub(new_file_content, content)
+
             log_file.seek(0)
             log_file.truncate()
             log_file.write(updated_content)
+
+            # Debug print
+            print(f"Removed {len(lines) - len(compressed_lines)} lines from {file_path}")
+        else:
+            print(f"File content not found for {file_path}")
 
     def process_import_used_code(self, import_path: Path, imported_names: Set[str], log_file) -> None:
         if import_path in self.processed_files or self.should_ignore(import_path):
