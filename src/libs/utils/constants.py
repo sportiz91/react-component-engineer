@@ -222,14 +222,16 @@ declare module '*.module.css' {
 CODE_CHANGES: str = """
 Only show me code changes with a clear indication of where they should be placed.
 
-Take your time to give an answer, and think deeply before answering. Draw a first conclusion, analize your own conclusion and improve it.
+Take your time to give an answer, and think deeply before answering. Draw a first conclusion, 
+analize your own conclusion and improve it.
 """
 
 ENTIRE_FILE: str = """
 Please, output the modified files with the changes added to it, so I can copy paste it into my codebase.
 
-If you cannot output the entire file with the modified changes due to your own limitations, please respond "I cannot output the 
+If you cannot output the entire file with the modified changes due to your own limitations, please respond "I cannot output the
 entire file with the changes because it's size is exceding my context window.
 
-Take your time to give an answer, and think deeply before answering. Draw a first conclusion, analize your own conclusion and improve it.
+Take your time to give an answer, and think deeply before answering. Draw a first conclusion,
+analize your own conclusion and improve it.
 """
