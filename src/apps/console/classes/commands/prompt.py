@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Set, List, Any, Dict, Optional
+from typing import Set, List, Any, Dict, Optional, Tuple
 import ast
 import mimetypes
 import fnmatch
@@ -203,39 +203,38 @@ class PromptConstructorCommand(BaseCommand):
         log_file.write(content)
         log_file.write("\n\n")
 
-        unused_code = self.get_unused_code(content, imported_names, import_path)
-        self.remove_unused_code_from_log(log_file, import_path, unused_code)
+        unused_ranges = self.get_unused_code(content, imported_names, import_path)
+        self.remove_unused_code_from_log(log_file, import_path, unused_ranges)
 
         new_imports = self.get_local_imports(import_path)
         for new_import_path, new_imported_names in new_imports.items():
             self.process_import_file(new_import_path, new_imported_names, import_path, log_file)
 
-    def get_unused_code(self, content: str, imported_names: Set[str], file_path: Path) -> List[ast.AST]:
+    def get_unused_code(self, content: str, imported_names: Set[str], file_path: Path) -> List[Tuple[int, int]]:
         tree = ast.parse(content)
-        unused_nodes = []
-        defined_names = set()
+        used_names = set(imported_names)
+        unused_ranges = []
 
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
-                defined_names.add(node.name)
+        class UsedNameCollector(ast.NodeVisitor):
+            def visit_Name(self, node):
+                used_names.add(node.id)
+                self.generic_visit(node)
+
+        UsedNameCollector().visit(tree)
 
         for node in tree.body:
-            if isinstance(node, (ast.Import, ast.ImportFrom)):
-                continue  # Keep all imports
-            elif isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
-                if node.name not in imported_names and not self.is_used_internally(node, defined_names, tree):
-                    unused_nodes.append(node)
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
+                # Consider decorated functions as used
+                if node.decorator_list or node.name in used_names:
+                    used_names.add(node.name)
+                else:
+                    unused_ranges.append((node.lineno, node.end_lineno))
             elif isinstance(node, ast.Assign):
-                all_targets_unused = True
-                for target in node.targets:
-                    if isinstance(target, ast.Name):
-                        if target.id in imported_names or self.is_used_internally(node, defined_names, tree):
-                            all_targets_unused = False
-                            break
+                all_targets_unused = all(isinstance(target, ast.Name) and target.id not in used_names for target in node.targets)
                 if all_targets_unused:
-                    unused_nodes.append(node)
+                    unused_ranges.append((node.lineno, node.end_lineno))
 
-        return unused_nodes
+        return unused_ranges
 
     def is_used_internally(self, node: ast.AST, defined_names: Set[str], tree: ast.AST) -> bool:
         for other_node in ast.walk(tree):
@@ -243,7 +242,7 @@ class PromptConstructorCommand(BaseCommand):
                 return True
         return False
 
-    def remove_unused_code_from_log(self, log_file, file_path: Path, unused_nodes: List[ast.AST]) -> None:
+    def remove_unused_code_from_log(self, log_file, file_path: Path, unused_ranges: List[Tuple[int, int]]) -> None:
         log_file.seek(0)
         content = log_file.read()
         file_marker = f"--- Filename {file_path.relative_to(self.project_root)} ---"
@@ -251,12 +250,16 @@ class PromptConstructorCommand(BaseCommand):
 
         if file_content_match:
             file_content = file_content_match.group(0)
-            for node in unused_nodes:
-                node_content = ast.get_source_segment(file_content, node)
-                if node_content:
-                    file_content = file_content.replace(node_content, "")
+            lines = file_content.split("\n")
+            to_remove = set()
 
-            updated_content = content.replace(file_content_match.group(0), file_content)
+            for start_line, end_line in unused_ranges:
+                to_remove.update(range(start_line - 1, end_line))  # Convert to 0-indexed
+
+            new_lines = [line for i, line in enumerate(lines) if i not in to_remove]
+            new_file_content = "\n".join(new_lines)
+
+            updated_content = content.replace(file_content_match.group(0), new_file_content)
             log_file.seek(0)
             log_file.truncate()
             log_file.write(updated_content)

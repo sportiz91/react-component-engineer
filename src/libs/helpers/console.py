@@ -34,6 +34,22 @@ def _(event):
         event.app.exit(result=event.app.current_buffer.text)
 
 
+def print_error(message: str) -> None:
+    console.print(f"Error: {message}", style="bold red")
+
+
+def print_error_two(message: str) -> None:
+    console.print(f"Error: {message}", style="bold red")
+
+
+def print_error_three(message: str) -> None:
+    console.print(f"Error: {message}", style="bold red")
+    
+
+def print_error_four(message: str) -> None:
+    console.print(f"Error: {message}", style="bold red")
+
+
 async def get_user_input(prompt: str, choices: Optional[List[str]] = None, default: Optional[str] = None, multiline: bool = False) -> str:
     global session
 
