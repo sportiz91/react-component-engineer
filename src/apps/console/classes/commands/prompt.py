@@ -39,7 +39,7 @@ class PromptConstructorCommand(BaseCommand):
 
         prompt_log = self.project_root / "prompt.log"
 
-        with open(prompt_log, "w") as log_file:
+        with open(prompt_log, "w+") as log_file:
             if mode == "traverse":
                 filename = await get_user_input("Enter the filename (e.g., src/apps/console/main.py): ")
 
