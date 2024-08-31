@@ -1,39 +1,23 @@
-def wrap_text(text: str, max_width: int = 120) -> str:
-    paragraphs = text.split("\n")
-    wrapped_paragraphs = []
+import textwrap
 
-    for paragraph in paragraphs:
-        if paragraph.strip() == "":
-            wrapped_paragraphs.append("")
+
+def wrap_text(text: str, max_width: int = 120) -> str:
+    lines = text.split("\n")
+    wrapped_lines = []
+
+    for line in lines:
+        if line.strip() == "":
+            wrapped_lines.append(line)
             continue
 
-        words = paragraph.split()
-        lines = []
-        current_line = []
-        current_length = 0
+        # Preserve original indentation
+        indent = len(line) - len(line.lstrip())
+        indent_str = " " * indent
 
-        for i, word in enumerate(words):
-            word_length = len(word) + (1 if current_line else 0)
+        # Wrap the non-indented part of the line
+        wrapped = textwrap.wrap(line.strip(), width=max_width - indent, break_long_words=False, replace_whitespace=False)
 
-            if current_length + word_length > max_width and current_line:
-                lines.append(" ".join(current_line))
-                current_line = []
-                current_length = 0
+        # Add back the indentation
+        wrapped_lines.extend(indent_str + subline for subline in wrapped)
 
-            current_line.append(word)
-            current_length += word_length
-
-            if word[-1] in ".,:;!?" and current_length >= max_width:
-                lines.append(" ".join(current_line))
-                current_line = []
-                current_length = 0
-
-                if word[-1] == "." and i < len(words) - 1 and words[i + 1][0].isupper():
-                    lines.append("")
-
-        if current_line:
-            lines.append(" ".join(current_line))
-
-        wrapped_paragraphs.append("\n".join(lines))
-
-    return "\n".join(wrapped_paragraphs)
+    return "\n".join(wrapped_lines)
