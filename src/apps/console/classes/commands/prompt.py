@@ -26,7 +26,6 @@ class PromptConstructorCommand(BaseCommand):
 
     async def execute(self, *args: Any, **kwargs: Any) -> None:
         self.ignore_patterns = self.parse_gitignore()
-        self.log_ignored_patterns()
 
         mode = await get_user_input("Enter mode: ", choices=["all", "traverse"], default="all") or "all"
         self.set_mode(mode)
@@ -170,7 +169,7 @@ class PromptConstructorCommand(BaseCommand):
 
         if self.get_mode() == "traverse":
             local_imports = self.get_local_imports(file_path)
-            for import_path in local_imports:
+            for import_path, _ in local_imports.items():
                 self.process_file(import_path, log_file)
 
     def process_file_used_code_only(self, file_path: Path, log_file) -> None:
@@ -196,6 +195,9 @@ class PromptConstructorCommand(BaseCommand):
 
         self.processed_files.add(import_path)
 
+        print(f"Processing import file: {import_path}")
+        print(f"Imported names: {imported_names}")
+
         with open(import_path, "r", encoding="utf-8") as source_file:
             content = source_file.read()
 
@@ -205,23 +207,29 @@ class PromptConstructorCommand(BaseCommand):
         lines = content.split("\n")
         lines_to_remove = set()
         for start, end in unused_ranges:
-            lines_to_remove.update(range(start - 1, end))
-        new_lines = [line for i, line in enumerate(lines) if i not in lines_to_remove]
+            lines_to_remove.update(range(start - 1, end))  # Convert to 0-indexed
 
-        # Compress blank lines
+        new_lines = []
+        for i, line in enumerate(lines):
+            if i not in lines_to_remove:
+                new_lines.append(line)
+            else:
+                print(f"Removing line {i+1}: {line}")
+
+        # Compress blank lines to a maximum of 1
         compressed_lines = []
-        blank_line_count = 0
+        prev_line_blank = False
         for line in new_lines:
             if line.strip():
-                if blank_line_count > 0:
-                    compressed_lines.extend([""] * min(blank_line_count, 2))
                 compressed_lines.append(line)
-                blank_line_count = 0
-            else:
-                blank_line_count += 1
+                prev_line_blank = False
+            elif not prev_line_blank:
+                compressed_lines.append(line)
+                prev_line_blank = True
+            # If line is blank and prev_line_blank is True, skip this line
 
-        # Remove trailing blank lines
-        while compressed_lines and not compressed_lines[-1].strip():
+        # Remove trailing blank line if it exists
+        if compressed_lines and not compressed_lines[-1].strip():
             compressed_lines.pop()
 
         new_content = "\n".join(compressed_lines)
@@ -230,6 +238,8 @@ class PromptConstructorCommand(BaseCommand):
         log_file.write(new_content)
         log_file.write("\n\n")
 
+        print(f"Removed {len(lines) - len(compressed_lines)} lines from {import_path}")
+
         new_imports = self.get_local_imports(import_path)
         for new_import_path, new_imported_names in new_imports.items():
             self.process_import_file(new_import_path, new_imported_names, import_path, log_file)
@@ -237,29 +247,77 @@ class PromptConstructorCommand(BaseCommand):
     def get_unused_code(self, content: str, imported_names: Set[str], file_path: Path) -> List[Tuple[int, int]]:
         tree = ast.parse(content)
         used_names = set(imported_names)
+        defined_names = set()
         unused_ranges = []
 
-        class UsedNameCollector(ast.NodeVisitor):
+        print(f"Analyzing file: {file_path}")
+        print(f"Imported names: {imported_names}")
+
+        class NameCollector(ast.NodeVisitor):
             def visit_Name(self, node):
-                used_names.add(node.id)
+                if isinstance(node.ctx, ast.Store):
+                    defined_names.add(node.id)
+                    print(f"Defined name: {node.id}")
+                elif isinstance(node.ctx, ast.Load) and node.id not in __builtins__:
+                    used_names.add(node.id)
+                    print(f"Used name: {node.id}")
                 self.generic_visit(node)
 
-        UsedNameCollector().visit(tree)
+            def visit_Import(self, node):
+                for alias in node.names:
+                    defined_names.add(alias.asname or alias.name)
+                    print(f"Imported name: {alias.asname or alias.name}")
+                self.generic_visit(node)
 
-        for node in tree.body:
+            def visit_ImportFrom(self, node):
+                for alias in node.names:
+                    defined_names.add(alias.asname or alias.name)
+                    print(f"Imported name from module: {alias.asname or alias.name}")
+                self.generic_visit(node)
+
+            def visit_Assign(self, node):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        defined_names.add(target.id)
+                        print(f"Assignment: {target.id}")
+                self.generic_visit(node)
+
+            def visit_AnnAssign(self, node):
+                if isinstance(node.target, ast.Name):
+                    defined_names.add(node.target.id)
+                    print(f"Annotated Assignment: {node.target.id}")
+                self.generic_visit(node)
+
+        NameCollector().visit(tree)
+
+        print(f"Defined names: {defined_names}")
+        print(f"Used names: {used_names}")
+
+        for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
                 if node.decorator_list:
-                    # Keep decorated functions/classes
                     continue
-                elif node.name not in used_names:
+                if node.name not in used_names and node.name != "__init__":
                     unused_ranges.append((node.lineno, node.end_lineno))
                     print(f"Unused function/class: {node.name} (lines {node.lineno}-{node.end_lineno})")
-            elif isinstance(node, ast.Assign):
-                if all(not isinstance(target, ast.Name) or target.id not in used_names for target in node.targets):
-                    unused_ranges.append((node.lineno, node.end_lineno))
-                    print(f"Unused assignment: {ast.unparse(node)} (lines {node.lineno}-{node.end_lineno})")
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                if isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            if target.id not in used_names:
+                                unused_ranges.append((node.lineno, node.end_lineno))
+                                print(f"Unused assignment: {target.id} (lines {node.lineno}-{node.end_lineno})")
+                            else:
+                                print(f"Used assignment: {target.id} (lines {node.lineno}-{node.end_lineno})")
+                elif isinstance(node, ast.AnnAssign):
+                    if isinstance(node.target, ast.Name):
+                        if node.target.id not in used_names:
+                            unused_ranges.append((node.lineno, node.end_lineno))
+                            print(f"Unused annotated assignment: {node.target.id} (lines {node.lineno}-{node.end_lineno})")
+                        else:
+                            print(f"Used annotated assignment: {node.target.id} (lines {node.lineno}-{node.end_lineno})")
 
-        print(f"Unused ranges for {file_path}: {unused_ranges}")  # Debug print
+        print(f"Unused ranges for {file_path}: {unused_ranges}")
         return unused_ranges
 
     def is_used_internally(self, node: ast.AST, defined_names: Set[str], tree: ast.AST) -> bool:
@@ -272,7 +330,7 @@ class PromptConstructorCommand(BaseCommand):
         log_file.seek(0)
         content = log_file.read()
         file_marker = f"--- Filename {file_path.relative_to(self.project_root)} ---"
-        pattern = re.compile(f"{re.escape(file_marker)}.*?(?=--- Filename|\Z)", re.DOTALL)
+        pattern = re.compile(rf"{re.escape(file_marker)}.*?(?=--- Filename|\Z)", re.DOTALL)
         match = pattern.search(content)
 
         if match:
@@ -471,6 +529,17 @@ class PromptConstructorCommand(BaseCommand):
                             else:
                                 imported_names.add(alias.asname or alias.name)
                         imports.setdefault(module_path, set()).update(imported_names)
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr == "import_module" and isinstance(node.func.value, ast.Name) and node.func.value.id == "importlib":
+                    if node.args and isinstance(node.args[0], ast.Constant):
+                        module_name = node.args[0].s
+                        if module_name.startswith(("src.", "apps.")):
+                            module_path = self.resolve_import_path(module_name)
+                            if module_path and module_path.is_dir():
+                                for py_file in module_path.rglob("*.py"):
+                                    if not self.should_ignore(py_file):
+                                        relative_module_name = str(py_file.relative_to(self.project_root)).replace("/", ".").replace("\\", ".")[:-3]
+                                        imports.setdefault(py_file, set()).add(relative_module_name)
 
         return imports
 
@@ -484,15 +553,9 @@ class PromptConstructorCommand(BaseCommand):
         init_file = module_path / "__init__.py"
         if init_file.is_file():
             return init_file
+        if module_path.is_dir():
+            return module_path
         return None
-
-    def log_ignored_patterns(self) -> None:
-        if self.ignore_patterns:
-            self.console.print("Ignoring the following patterns from .gitignore:", style="bold yellow")
-            for pattern in self.ignore_patterns:
-                self.console.print(f"  - {pattern}", style="yellow")
-        else:
-            self.console.print("No .gitignore patterns found.", style="bold yellow")
 
     def get_mode(self) -> str:
         return getattr(self, "_mode", "all")

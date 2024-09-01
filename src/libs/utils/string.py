@@ -1,6 +1,23 @@
 import textwrap
 
 
+# @TODO: remove this functions when working, is just to test traverse with only code used mode.
+def mock_function_1():
+    pass
+
+
+def mock_function_2():
+    pass
+
+
+def mock_function_3():
+    pass
+
+
+def mock_function_4():
+    pass
+
+
 def wrap_text(text: str, max_width: int = 120) -> str:
     lines = text.split("\n")
     wrapped_lines = []
