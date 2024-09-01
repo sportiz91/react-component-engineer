@@ -213,8 +213,6 @@ class PromptConstructorCommand(BaseCommand):
         for i, line in enumerate(lines):
             if i not in lines_to_remove:
                 new_lines.append(line)
-            else:
-                print(f"Removing line {i+1}: {line}")
 
         # Compress blank lines to a maximum of 1
         compressed_lines = []
@@ -257,35 +255,29 @@ class PromptConstructorCommand(BaseCommand):
             def visit_Name(self, node):
                 if isinstance(node.ctx, ast.Store):
                     defined_names.add(node.id)
-                    print(f"Defined name: {node.id}")
                 elif isinstance(node.ctx, ast.Load) and node.id not in __builtins__:
                     used_names.add(node.id)
-                    print(f"Used name: {node.id}")
                 self.generic_visit(node)
 
             def visit_Import(self, node):
                 for alias in node.names:
                     defined_names.add(alias.asname or alias.name)
-                    print(f"Imported name: {alias.asname or alias.name}")
                 self.generic_visit(node)
 
             def visit_ImportFrom(self, node):
                 for alias in node.names:
                     defined_names.add(alias.asname or alias.name)
-                    print(f"Imported name from module: {alias.asname or alias.name}")
                 self.generic_visit(node)
 
             def visit_Assign(self, node):
                 for target in node.targets:
                     if isinstance(target, ast.Name):
                         defined_names.add(target.id)
-                        print(f"Assignment: {target.id}")
                 self.generic_visit(node)
 
             def visit_AnnAssign(self, node):
                 if isinstance(node.target, ast.Name):
                     defined_names.add(node.target.id)
-                    print(f"Annotated Assignment: {node.target.id}")
                 self.generic_visit(node)
 
         NameCollector().visit(tree)
@@ -306,16 +298,10 @@ class PromptConstructorCommand(BaseCommand):
                         if isinstance(target, ast.Name):
                             if target.id not in used_names:
                                 unused_ranges.append((node.lineno, node.end_lineno))
-                                print(f"Unused assignment: {target.id} (lines {node.lineno}-{node.end_lineno})")
-                            else:
-                                print(f"Used assignment: {target.id} (lines {node.lineno}-{node.end_lineno})")
                 elif isinstance(node, ast.AnnAssign):
                     if isinstance(node.target, ast.Name):
                         if node.target.id not in used_names:
                             unused_ranges.append((node.lineno, node.end_lineno))
-                            print(f"Unused annotated assignment: {node.target.id} (lines {node.lineno}-{node.end_lineno})")
-                        else:
-                            print(f"Used annotated assignment: {node.target.id} (lines {node.lineno}-{node.end_lineno})")
 
         print(f"Unused ranges for {file_path}: {unused_ranges}")
         return unused_ranges
