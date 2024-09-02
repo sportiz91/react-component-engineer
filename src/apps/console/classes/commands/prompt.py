@@ -17,7 +17,7 @@ DESCRIPTION: str = "Construct a prompt log file from given Python files or all f
 PROJECT_ROOT: Path = Path(__file__).resolve().parents[5]
 PROCESSED_FILES: Set[Path] = set()
 ALLOWED_FILES: List[str] = [".gitignore", ".env.example", "pyproject.toml", ".flake8"]
-PROCESSED_CONTENT: Dict[Path, Set[str]] = {}
+PROCESSED_CONTENT: Dict[Path, Set[int]] = {}
 
 
 class PromptConstructorCommand(BaseCommand):
@@ -25,7 +25,7 @@ class PromptConstructorCommand(BaseCommand):
     description: str = DESCRIPTION
     project_root: Path = PROJECT_ROOT
     processed_files: Set[Path] = PROCESSED_FILES
-    processed_content: Dict[Path, Set[str]] = PROCESSED_CONTENT
+    processed_content: Dict[Path, Set[int]] = PROCESSED_CONTENT
 
     async def execute(self, *args: Any, **kwargs: Any) -> None:
         self.ignore_patterns = self.parse_gitignore()
@@ -98,6 +98,7 @@ class PromptConstructorCommand(BaseCommand):
                 self.console.print(f"Invalid mode: {mode}", style="bold red")
                 return
 
+        self.format_prompt_log()
         self.console.print(f"prompt log has been written to {prompt_log}", style="bold green")
 
     async def get_starting_message(self) -> str:
@@ -198,7 +199,7 @@ class PromptConstructorCommand(BaseCommand):
         log(f"Self processed content: {self.processed_content}")
 
         if import_path not in self.processed_content:
-            self.processed_content[import_path] = ""
+            self.processed_content[import_path] = set()
 
         if self.should_ignore(import_path):
             log(f"Ignoring file: {import_path}")
@@ -218,56 +219,56 @@ class PromptConstructorCommand(BaseCommand):
             lines_to_remove.update(range(start - 1, end))  # Convert to 0-indexed
 
         new_lines = []
-        prev_line_kept = False
+        new_content = False
+        blank_line_count = 0
+
         for i, line in enumerate(lines):
             if i not in lines_to_remove:
-                # Preserve blank lines between functions/classes
-                if line.strip() == "" and prev_line_kept:
+                is_blank_line = line.strip() == ""
+                if is_blank_line:
+                    if blank_line_count < 2:
+                        new_lines.append(line)
+                        blank_line_count += 1
+                else:
                     new_lines.append(line)
-                    if line not in self.processed_content[import_path]:
-                        self.processed_content[import_path] += line
-                elif line.strip() != "":
-                    new_lines.append(line)
-                    prev_line_kept = True
-                    if line not in self.processed_content[import_path]:
-                        self.processed_content[import_path] += line
+                    blank_line_count = 0
 
-            else:
-                prev_line_kept = False
-
-        # new_content = "".join(new_lines)
-
-        # Ensure there are no more than two consecutive blank lines
-        # final_lines = []
-        # blank_line_count = 0
-        # for line in new_lines:
-        #     if line.strip():
-        #         if blank_line_count > 0:
-        #             final_lines.extend(["\n"] * min(blank_line_count, 2))
-        #         final_lines.append(line)
-        #         blank_line_count = 0
-        #     else:
-        #         blank_line_count += 1
-
-        # # Ensure there's always a newline at the end of the file
-        # if final_lines and not final_lines[-1].endswith("\n"):
-        #     final_lines.append("\n")
+                line_hash = hash(line)
+                if line_hash not in self.processed_content[import_path] and not is_blank_line:
+                    self.processed_content[import_path].add(line_hash)
+                    new_content = True
 
         final_content = "".join(new_lines)
 
-        if final_content.strip():
-            if import_path not in self.processed_files:
-                log_file.write(f"\n\n--- Filename {import_path.relative_to(self.project_root)} ---\n\n")
-            log_file.write(final_content)
+        if new_content:
+            log_file.seek(0)
+            content = log_file.read()
+            file_marker = f"--- Filename {import_path.relative_to(self.project_root)} ---"
 
-        self.processed_files.add(import_path)
+            if file_marker in content:
+                # Find the position of the next file marker or the end of the file
+                start_pos = content.index(file_marker)
+                next_marker_pos = content.find("--- Filename", start_pos + len(file_marker))
+                if next_marker_pos == -1:
+                    next_marker_pos = len(content)
+
+                # Insert the new content just before the next file marker or at the end of the file
+                updated_content = content[:next_marker_pos].rstrip() + "\n\n" + final_content + "\n\n" + content[next_marker_pos:]
+            else:
+                # If the file marker doesn't exist, add it at the end of the file
+                updated_content = content.rstrip() + f"\n\n{file_marker}\n\n{final_content}\n\n"
+
+            log_file.seek(0)
+            log_file.truncate()
+            log_file.write(updated_content)
+
+        if import_path not in self.processed_files:
+            self.processed_files.add(import_path)
+            new_imports, programatically_imports = self.get_local_imports(import_path)
+            for new_import_path, new_imported_names in new_imports.items():
+                self.process_import_file(new_import_path, new_imported_names, import_path, log_file, programatically_imports)
 
         log(f"Added {len(new_lines)} lines from {import_path}")
-
-        new_imports, programatically_imports = self.get_local_imports(import_path)
-        for new_import_path, new_imported_names in new_imports.items():
-            self.process_import_file(new_import_path, new_imported_names, import_path, log_file, programatically_imports)
-
         log(f"Finished processing {import_path}")
 
     def get_unused_code(self, content: str, imported_names: Set[str], file_path: Path, programatically_imports: Dict[Path, Set[str]]) -> List[Tuple[int, int]]:
@@ -594,6 +595,45 @@ class PromptConstructorCommand(BaseCommand):
         if module_path.is_dir():
             return module_path
         return None
+
+    def format_prompt_log(self):
+        prompt_log_path = self.project_root / "prompt.log"
+        try:
+            with open(prompt_log_path, "r", encoding="utf-8", errors="ignore") as file:
+                content = file.read()
+
+            # Remove all non-printable characters except for normal whitespace
+            content = re.sub(r"[^\x20-\x7E\n\r\t]", "", content)
+
+            # Split the content into lines
+            lines = content.split("\n")
+
+            # Process the lines to remove excessive blank lines
+            formatted_lines = []
+            blank_line_count = 0
+            for line in lines:
+                if line.strip():
+                    if blank_line_count > 0:
+                        formatted_lines.extend([""] * min(blank_line_count, 2))
+                    formatted_lines.append(line)
+                    blank_line_count = 0
+                else:
+                    blank_line_count += 1
+
+            # Remove trailing blank lines
+            while formatted_lines and not formatted_lines[-1].strip():
+                formatted_lines.pop()
+
+            # Join the formatted lines back into a single string
+            formatted_content = "\n".join(formatted_lines)
+
+            # Write the formatted content back to the file
+            with open(prompt_log_path, "w", encoding="utf-8") as file:
+                file.write(formatted_content)
+
+            self.console.print("Prompt log has been formatted and unexpected characters removed.", style="bold green")
+        except Exception as e:
+            self.console.print(f"An error occurred while formatting the prompt log: {str(e)}", style="bold red")
 
     def get_mode(self) -> str:
         return getattr(self, "_mode", "all")
