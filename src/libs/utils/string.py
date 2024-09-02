@@ -1,5 +1,7 @@
 import textwrap
 
+from src.libs.utils.constants import RANDOM_STRING
+
 
 # @TODO: remove this functions when working, is just to test traverse with only code used mode.
 def mock_function_1():
@@ -16,6 +18,15 @@ def mock_function_3():
 
 def mock_function_4():
     pass
+
+
+def get_random_string(length: int = 10) -> str:
+    import random
+    import string
+
+    print(RANDOM_STRING)
+
+    return "".join(random.choices(string.ascii_lowercase + string.digits, k=length))
 
 
 def wrap_text(text: str, max_width: int = 120) -> str:

@@ -235,3 +235,9 @@ entire file with the changes because it's size is exceding my context window."
 Take your time to give an answer, and think deeply before answering. Draw a first conclusion,
 analize your own conclusion and improve it.
 """
+
+# @TODO: delete when working
+RANDOM_STRING: str = """
+Hello!
+I'm a random string.
+"""
