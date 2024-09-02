@@ -195,9 +195,10 @@ class PromptConstructorCommand(BaseCommand):
     def process_import_file(self, import_path: Path, imported_names: Set[str], importing_file: Path, log_file, programatically_imports) -> None:
         log(f"Starting process_import_file for {import_path}")
         log(f"Imported names: {imported_names}")
+        log(f"Self processed content: {self.processed_content}")
 
         if import_path not in self.processed_content:
-            self.processed_content[import_path] = set()
+            self.processed_content[import_path] = ""
 
         if self.should_ignore(import_path):
             log(f"Ignoring file: {import_path}")
@@ -209,41 +210,59 @@ class PromptConstructorCommand(BaseCommand):
         unused_ranges = self.get_unused_code(content, imported_names, import_path, programatically_imports)
         log(f"Unused ranges: {unused_ranges}")
 
-        lines = content.split("\n")
+        lines = content.splitlines(keepends=True)
+        log(f"The lines: {lines}")
+
         lines_to_remove = set()
         for start, end in unused_ranges:
             lines_to_remove.update(range(start - 1, end))  # Convert to 0-indexed
 
         new_lines = []
+        prev_line_kept = False
         for i, line in enumerate(lines):
-            if i not in lines_to_remove and line not in self.processed_content[import_path]:
-                new_lines.append(line)
-                self.processed_content[import_path].add(line)
+            if i not in lines_to_remove:
+                # Preserve blank lines between functions/classes
+                if line.strip() == "" and prev_line_kept:
+                    new_lines.append(line)
+                    if line not in self.processed_content[import_path]:
+                        self.processed_content[import_path] += line
+                elif line.strip() != "":
+                    new_lines.append(line)
+                    prev_line_kept = True
+                    if line not in self.processed_content[import_path]:
+                        self.processed_content[import_path] += line
 
-        # Preserve blank lines, but limit consecutive blank lines to 2
-        compressed_lines = []
-        blank_line_count = 0
-        for line in new_lines:
-            if line.strip():
-                compressed_lines.append(line)
-                blank_line_count = 0
-            elif blank_line_count < 2:
-                compressed_lines.append(line)
-                blank_line_count += 1
+            else:
+                prev_line_kept = False
 
-        new_content = "\n".join(compressed_lines)
+        # new_content = "".join(new_lines)
 
-        if new_content.strip():
+        # Ensure there are no more than two consecutive blank lines
+        # final_lines = []
+        # blank_line_count = 0
+        # for line in new_lines:
+        #     if line.strip():
+        #         if blank_line_count > 0:
+        #             final_lines.extend(["\n"] * min(blank_line_count, 2))
+        #         final_lines.append(line)
+        #         blank_line_count = 0
+        #     else:
+        #         blank_line_count += 1
+
+        # # Ensure there's always a newline at the end of the file
+        # if final_lines and not final_lines[-1].endswith("\n"):
+        #     final_lines.append("\n")
+
+        final_content = "".join(new_lines)
+
+        if final_content.strip():
             if import_path not in self.processed_files:
                 log_file.write(f"\n\n--- Filename {import_path.relative_to(self.project_root)} ---\n\n")
-            else:
-                log_file.write("\n\n")  # Add two blank lines between file contents
-            log_file.write(new_content)
-            log_file.write("\n")  # Add a single blank line after the content
+            log_file.write(final_content)
 
         self.processed_files.add(import_path)
 
-        log(f"Added {len(compressed_lines)} lines from {import_path}")
+        log(f"Added {len(new_lines)} lines from {import_path}")
 
         new_imports, programatically_imports = self.get_local_imports(import_path)
         for new_import_path, new_imported_names in new_imports.items():
