@@ -552,12 +552,12 @@ class PromptConstructorCommand(BaseCommand):
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    if alias.name.startswith(("src.", "apps.")):
+                    if self.is_local_module(alias.name):
                         module_path = self.resolve_import_path(alias.name)
                         if module_path:
                             imports.setdefault(module_path, set()).add(alias.asname or alias.name)
             elif isinstance(node, ast.ImportFrom):
-                if node.module and node.module.startswith(("src.", "apps.")):
+                if node.module and self.is_local_module(node.module):
                     module_path = self.resolve_import_path(node.module)
                     if module_path:
                         imported_names = set()
@@ -571,7 +571,7 @@ class PromptConstructorCommand(BaseCommand):
                 if node.func.attr == "import_module" and isinstance(node.func.value, ast.Name) and node.func.value.id == "importlib":
                     if node.args and isinstance(node.args[0], ast.Constant):
                         module_name = node.args[0].s
-                        if module_name.startswith(("src.", "apps.")):
+                        if self.is_local_module(module_name):
                             module_path = self.resolve_import_path(module_name)
                             if module_path and module_path.is_dir():
                                 for py_file in module_path.rglob("*.py"):
@@ -640,3 +640,7 @@ class PromptConstructorCommand(BaseCommand):
 
     def set_mode(self, mode: str) -> None:
         self._mode = mode
+
+    def is_local_module(self, module_name: str) -> bool:
+        module_path: Path = self.project_root / Path(*module_name.split("."))
+        return module_path.exists() or module_path.with_suffix(".py").exists() or (module_path / "__init__.py").exists()
