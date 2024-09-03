@@ -17,3 +17,8 @@ def log(message: Any) -> None:
 
     with open(Path(__file__).resolve().parents[4] / "raw.log", "a") as log_file:
         log_file.write(formatted_message + "\n")
+
+
+def delete_raw_log() -> None:
+    with open(Path(__file__).resolve().parents[4] / "raw.log", "w") as log_file:
+        log_file.write("")
