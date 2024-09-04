@@ -38,16 +38,19 @@ class ConsoleApp:
                 user_input: str = await get_user_input("You: ")
                 command: str = user_input.lower().strip()
 
-                if command in self.commands:
-                    try:
-                        await self.commands[command].execute()
-                    except KeyboardInterrupt:
-                        self.console.print("\nCommand execution stopped. Going back to main menu.", style="bold yellow")
-                        continue
-                elif command == "exit":
-                    await self.cmd_exit()
-                else:
+                if command not in self.commands:
                     self.console.print(Panel("Unknown command. Type 'help' to see available commands.", title="Error", style="bold red"))
+                    continue
+
+                if command == "exit":
+                    await self.commands["exit"].execute()
+                    return
+
+                try:
+                    await self.commands[command].execute()
+                except KeyboardInterrupt:
+                    self.console.print("\nCommand execution stopped. Going back to main menu.", style="bold yellow")
+                    continue
             except KeyboardInterrupt:
                 await self.commands["exit"].execute()
             except Exception as e:

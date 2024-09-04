@@ -11,6 +11,7 @@ from src.libs.helpers.console import get_user_input
 from src.libs.utils.string import wrap_text
 from src.libs.utils.constants import CODE_CHANGES, ENTIRE_FILE
 from src.libs.services.logger.logger import log
+from src.libs.utils.file_system import copy_to_clipboard
 
 NAME: str = "prompt"
 DESCRIPTION: str = "Construct a prompt log file from given Python files or all files in specified folders"
@@ -28,7 +29,7 @@ class PromptConstructorCommand(BaseCommand):
     processed_content: Dict[Path, Set[int]] = PROCESSED_CONTENT
 
     async def execute(self, *args: Any, **kwargs: Any) -> None:
-        self.ignore_patterns = self.parse_gitignore()
+        self.ignore_patterns: List[str] = self.parse_gitignore()
 
         mode = await get_user_input("Enter mode: ", choices=["all", "traverse"], default="all") or "all"
         self.set_mode(mode)
@@ -44,8 +45,8 @@ class PromptConstructorCommand(BaseCommand):
 
         with open(prompt_log, "w+") as log_file:
             if mode == "traverse":
-                filename = await get_user_input("Enter the filename (e.g., src/apps/console/main.py): ")
-                start_file = self.project_root / filename
+                filename: str = await get_user_input("Enter the filename (e.g., src/apps/console/main.py): ")
+                start_file: Path = self.project_root / filename
 
                 if not start_file.exists():
                     self.console.print(f"File {start_file} does not exist.", style="bold red")
@@ -99,6 +100,11 @@ class PromptConstructorCommand(BaseCommand):
                 return
 
         self.format_prompt_log()
+        result: dict[str, str] = copy_to_clipboard(prompt_log)
+
+        if result["success"]:
+            self.console.print("prompt log has been copied to the clipboard", style="bold green")
+
         self.console.print(f"prompt log has been written to {prompt_log}", style="bold green")
 
     async def get_starting_message(self) -> str:

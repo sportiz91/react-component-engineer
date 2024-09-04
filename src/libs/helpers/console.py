@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit import PromptSession
@@ -19,26 +19,26 @@ kb = KeyBindings()
 
 
 @kb.add("c-m")
-def _(event):
+def _(event) -> None:
     if event.app.current_buffer.multiline:
         event.app.exit(result=event.app.current_buffer.text)
-    else:
-        event.current_buffer.insert_text("\n")
+        return
+    event.current_buffer.insert_text("\n")
 
 
 @kb.add(Keys.Enter)
-def _(event):
+def _(event) -> None:
     if event.app.current_buffer.multiline():
         event.current_buffer.insert_text("\n")
-    else:
-        event.app.exit(result=event.app.current_buffer.text)
+        return
+    event.app.exit(result=event.app.current_buffer.text)
 
 
-async def get_user_input(prompt: str, choices: Optional[List[str]] = None, default: Optional[str] = None, multiline: bool = False) -> str:
+async def get_user_input(prompt: str, choices: Optional[List[str]] = None, default: Optional[str] = None, multiline: bool = False) -> Union[str, None]:
     global session
 
     if not multiline and not choices:
-        return await session.prompt_async(prompt, multiline=multiline)
+        return await session.prompt_async(prompt, multiline=False)
 
     try:
         if choices:
@@ -50,7 +50,7 @@ async def get_user_input(prompt: str, choices: Optional[List[str]] = None, defau
                 if default:
                     default_index: int = choices.index(default) + 1
                     user_input: str = await session.prompt_async(f"Enter your choice (1-{len(choices)}) [default: {default_index}]: ", multiline=False)
-                    if not user_input and default:
+                    if not user_input:
                         return default
                 else:
                     user_input: str = await session.prompt_async(f"Enter your choice (1-{len(choices)}): ", multiline=False)
@@ -63,8 +63,8 @@ async def get_user_input(prompt: str, choices: Optional[List[str]] = None, defau
                         console.print("Invalid choice. Please try again.", style="bold red")
                 except ValueError:
                     console.print("Invalid input. Please enter a number.", style="bold red")
-        else:
-            message = HTML(f"<prompt>{f"{prompt} (ESC + ENTER to submit): "}</prompt>\n")
-            return await session.prompt_async(message, multiline=multiline, key_bindings=kb, wrap_lines=True)
+
+        message = HTML(f"<prompt>{f"{prompt} (ESC + ENTER to submit): "}</prompt>\n")
+        return await session.prompt_async(message, multiline=multiline, key_bindings=kb, wrap_lines=True)
     except KeyboardInterrupt:
         raise
