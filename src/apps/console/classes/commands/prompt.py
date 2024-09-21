@@ -1,17 +1,24 @@
 from pathlib import Path
-from typing import Set, List, Any, Dict, Optional, Tuple
-import ast
-import mimetypes
-import fnmatch
-import re
+from typing import Set, List, Any, Dict, Tuple
 
 
 from src.apps.console.classes.commands.base import BaseCommand
 from src.libs.helpers.console import get_user_input
-from src.libs.utils.string import wrap_text
+from src.libs.utils.string import wrap_text, remove_non_printable_characters
 from src.libs.utils.constants import CODE_CHANGES, ENTIRE_FILE
 from src.libs.services.logger.logger import log
-from src.libs.utils.file_system import copy_to_clipboard
+from src.libs.utils.file_system import (
+    copy_to_clipboard,
+    get_gitignore_patters_list,
+    should_ignore_file,
+    is_text_file_mimetype_or_allowed_file,
+    read_file_content,
+)
+from src.libs.utils.code_analysis import (
+    get_unused_code_ranges,
+    get_local_imports as get_local_imports_from_content,
+    remove_blank_lines_from_code_lines,
+)
 
 NAME: str = "prompt"
 DESCRIPTION: str = "Construct a prompt log file from given Python files or all files in specified folders"
@@ -29,7 +36,7 @@ class PromptConstructorCommand(BaseCommand):
     processed_content: Dict[Path, Set[int]] = PROCESSED_CONTENT
 
     async def execute(self, *args: Any, **kwargs: Any) -> None:
-        self.ignore_patterns: List[str] = self.parse_gitignore()
+        self.ignore_patterns: List[str] = get_gitignore_patters_list(self.project_root)
 
         mode: str = await get_user_input("Enter mode: ", choices=["all", "traverse"], default="all") or "all"
         self.set_mode(mode)
@@ -113,28 +120,8 @@ class PromptConstructorCommand(BaseCommand):
     async def get_closing_message(self) -> str:
         return await get_user_input("Enter a message to be written at the end of the prompt.log file", multiline=True)
 
-    def parse_gitignore(self) -> List[str]:
-        gitignore_path = self.project_root / ".gitignore"
-        if not gitignore_path.exists():
-            return []
-
-        with open(gitignore_path, "r") as f:
-            patterns = [line.strip() for line in f if line.strip() and not line.startswith("#")]
-
-        return patterns
-
     def should_ignore(self, file_path: Path) -> bool:
-        if file_path.name in ALLOWED_FILES:
-            return False
-
-        relative_path: Path = file_path.relative_to(self.project_root)
-
-        for pattern in self.ignore_patterns:
-            if fnmatch.fnmatch(str(relative_path), pattern) or fnmatch.fnmatch(relative_path.name, pattern):
-                return True
-            if pattern.endswith("/") and str(relative_path).startswith(pattern):
-                return True
-        return False
+        return should_ignore_file(file_path, self.project_root, self.ignore_patterns, ALLOWED_FILES)
 
     def process_multiple_folders(self, folders: List[Path], log_file) -> None:
         for folder in folders:
@@ -150,24 +137,17 @@ class PromptConstructorCommand(BaseCommand):
                 self.write_file_content(file_path, log_file)
 
     def write_file_content(self, file_path: Path, log_file) -> None:
-        mime_type, _ = mimetypes.guess_type(file_path)
-
-        if mime_type is None or not mime_type.startswith("text"):
-            if file_path.name not in ALLOWED_FILES:
-                return
-
-        try:
-            with open(file_path, "r", encoding="utf-8") as source_file:
-                content: str = source_file.read()
-
-            log_file.write(f"--- Filename {file_path.relative_to(self.project_root)} ---\n\n")
-            log_file.write(content)
-            log_file.write("\n\n")
-        except UnicodeDecodeError:
+        if not is_text_file_mimetype_or_allowed_file(file_path, ALLOWED_FILES):
             return
-        except Exception as e:
-            log_file.write(f"--- Filename {file_path.relative_to(self.project_root)} ---\n\n")
-            log_file.write(f"Error reading file: {str(e)}\n\n")
+
+        content: str | None = read_file_content(file_path)
+
+        if content is None:
+            return
+
+        log_file.write(f"--- Filename {file_path.relative_to(self.project_root)} ---\n\n")
+        log_file.write(content)
+        log_file.write("\n\n")
 
     def process_file(self, file_path: Path, log_file) -> None:
         if file_path in self.processed_files or self.should_ignore(file_path):
@@ -278,149 +258,15 @@ class PromptConstructorCommand(BaseCommand):
         log(f"Finished processing {import_path}")
 
     def get_unused_code(self, content: str, imported_names: Set[str], file_path: Path, programatically_imports: Dict[Path, Set[str]]) -> List[Tuple[int, int]]:
-        log(f"programatically_imports: {programatically_imports}")
-
-        if file_path in programatically_imports:
-            return []
-
-        tree = ast.parse(content)
-        used_names: set[str] = set(imported_names)
-        defined_names: set = set()
-        unused_ranges: list = []
-        used_classes: set = set()
-        class_methods: dict = {}
-
-        log(f"Analyzing file: {file_path}")
-        log(f"Imported names: {imported_names}")
-
-        class NameCollector(ast.NodeVisitor):
-            def visit_Name(self, node):
-                if isinstance(node.ctx, ast.Store):
-                    defined_names.add(node.id)
-                    log(f"Defined name: {node.id}")
-                elif isinstance(node.ctx, ast.Load) and node.id not in __builtins__:
-                    used_names.add(node.id)
-                    if node.id in defined_names:
-                        used_classes.add(node.id)
-                    log(f"Used name: {node.id}")
-                self.generic_visit(node)
-
-            def visit_ClassDef(self, node):
-                defined_names.add(node.name)
-                class_methods[node.name] = [m.name for m in node.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))]
-                log(f"Defined class: {node.name} with methods: {class_methods[node.name]}")
-                if node.name in imported_names:
-                    used_classes.add(node.name)
-                self.generic_visit(node)
-
-        NameCollector().visit(tree)
-
-        log(f"Defined names: {defined_names}")
-        log(f"Used names: {used_names}")
-        log(f"Used classes: {used_classes}")
-        log(f"Class methods: {class_methods}")
-
-        # Consider all methods of used classes as used
-        for class_name in used_classes:
-            if class_name in class_methods:
-                used_names.update(class_methods[class_name])
-
-        for node in ast.walk(tree):
-            log(f"Processing node: {type(node).__name__}")
-            if isinstance(node, ast.ClassDef):
-                if node.name not in used_names and node.name not in used_classes:
-                    unused_ranges.append((node.lineno, node.end_lineno))
-                    log(f"Marking class as unused: {node.name}")
-                else:
-                    log(f"Class is used: {node.name}")
-            # @TODO: I think there's a bug in here. Decorated functions are always taken as used, which is not always the case.
-            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if node.decorator_list:
-                    log(f"Skipping decorated function: {node.name}")
-                    continue
-                is_method_of_used_class = any(node.name in methods for cls, methods in class_methods.items() if cls in used_classes)
-                if node.name not in used_names and node.name != "__init__" and not is_method_of_used_class:
-                    unused_ranges.append((node.lineno, node.end_lineno))
-                    log(f"Marking function as unused: {node.name}")
-                else:
-                    log(f"Function is used: {node.name}")
-            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
-                if isinstance(node, ast.Assign):
-                    for target in node.targets:
-                        if isinstance(target, ast.Name):
-                            if target.id not in used_names and target.id not in used_classes:
-                                unused_ranges.append((node.lineno, node.end_lineno))
-                                log(f"Marking assignment as unused: {target.id}")
-                            else:
-                                log(f"Assignment is used: {target.id}")
-                elif isinstance(node, ast.AnnAssign):
-                    if isinstance(node.target, ast.Name):
-                        if node.target.id not in used_names and node.target.id not in used_classes:
-                            unused_ranges.append((node.lineno, node.end_lineno))
-                            log(f"Marking annotated assignment as unused: {node.target.id}")
-                        else:
-                            log(f"Annotated assignment is used: {node.target.id}")
-
-        log(f"Unused ranges for {file_path}: {unused_ranges}")
-        return unused_ranges
+        return get_unused_code_ranges(content, imported_names, file_path, programatically_imports)
 
     def get_local_imports(self, file_path: Path) -> Tuple[Dict[Path, Set[str]], Dict[Path, Set[str]]]:
-        with open(file_path, "r", encoding="utf-8") as source_file:
-            content: str = source_file.read()
+        content: str | None = read_file_content(file_path)
 
-        tree = ast.parse(content)
-        imports: dict = {}
-        programatically_imports: dict = {}
+        if content is None:
+            return {}, {}
 
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    if self.is_local_module(alias.name):
-                        module_path: Path | None = self.resolve_import_path(alias.name)
-                        if module_path:
-                            imports.setdefault(module_path, set()).add(alias.asname or alias.name)
-            elif isinstance(node, ast.ImportFrom):
-                if node.module and self.is_local_module(node.module):
-                    module_path: Path | None = self.resolve_import_path(node.module)
-                    if module_path:
-                        imported_names: set = set()
-                        for alias in node.names:
-                            if alias.name == "*":
-                                imported_names.add("*")
-                            else:
-                                imported_names.add(alias.asname or alias.name)
-                        imports.setdefault(module_path, set()).update(imported_names)
-            # @TODO: I think in here there's a bug -> if module_path and module_path.is_dir():
-            # We're not taking into consideration the non dir (file) cases. We should check if it's a file and then add it to imports
-            # But we should only add it if it's not in the imports already.
-            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-                if node.func.attr == "import_module" and isinstance(node.func.value, ast.Name) and node.func.value.id == "importlib":
-                    if node.args and isinstance(node.args[0], ast.Constant):
-                        module_name = node.args[0].s
-                        if self.is_local_module(module_name):
-                            module_path: Path | None = self.resolve_import_path(module_name)
-                            if module_path and module_path.is_dir():
-                                for py_file in module_path.rglob("*.py"):
-                                    if not self.should_ignore(py_file):
-                                        relative_module_name: str = str(py_file.relative_to(self.project_root)).replace("/", ".").replace("\\", ".")[:-3]
-                                        imports.setdefault(py_file, set()).add(relative_module_name)
-                                        programatically_imports.setdefault(py_file, set()).add(relative_module_name)
-
-        return imports, programatically_imports
-
-    def resolve_import_path(self, module_name: str) -> Optional[Path]:
-        module_path = self.project_root / Path(*module_name.split("."))
-        if module_path.is_file():
-            return module_path
-        py_file = module_path.with_suffix(".py")
-        if py_file.is_file():
-            return py_file
-        init_file = module_path / "__init__.py"
-        if init_file.is_file():
-            return init_file
-        if module_path.is_dir():
-            return module_path
-        return None
+        return get_local_imports_from_content(content, self.project_root, self.ignore_patterns, ALLOWED_FILES)
 
     def format_prompt_log(self):
         prompt_log_path = self.project_root / "prompt.log"
@@ -428,32 +274,10 @@ class PromptConstructorCommand(BaseCommand):
             with open(prompt_log_path, "r", encoding="utf-8", errors="ignore") as file:
                 content = file.read()
 
-            # Remove all non-printable characters except for normal whitespace
-            content: str = re.sub(r"[^\x20-\x7E\n\r\t]", "", content)
+            content = remove_non_printable_characters(content)
+            lines = content.split("\n")
+            formatted_content = remove_blank_lines_from_code_lines(lines)
 
-            # Split the content into lines
-            lines: str = content.split("\n")
-
-            # Process the lines to remove excessive blank lines
-            formatted_lines = []
-            blank_line_count = 0
-            for line in lines:
-                if line.strip():
-                    if blank_line_count > 0:
-                        formatted_lines.extend([""] * min(blank_line_count, 2))
-                    formatted_lines.append(line)
-                    blank_line_count = 0
-                else:
-                    blank_line_count += 1
-
-            # Remove trailing blank lines
-            while formatted_lines and not formatted_lines[-1].strip():
-                formatted_lines.pop()
-
-            # Join the formatted lines back into a single string
-            formatted_content = "\n".join(formatted_lines)
-
-            # Write the formatted content back to the file
             with open(prompt_log_path, "w", encoding="utf-8") as file:
                 file.write(formatted_content)
 
@@ -466,7 +290,3 @@ class PromptConstructorCommand(BaseCommand):
 
     def set_mode(self, mode: str) -> None:
         self._mode = mode
-
-    def is_local_module(self, module_name: str) -> bool:
-        module_path: Path = self.project_root / Path(*module_name.split("."))
-        return module_path.exists() or module_path.with_suffix(".py").exists() or (module_path / "__init__.py").exists()
