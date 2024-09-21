@@ -7,6 +7,7 @@ from src.libs.helpers.console import get_user_input
 from src.libs.utils.string import wrap_text, remove_non_printable_characters
 from src.libs.utils.constants import CODE_CHANGES, ENTIRE_FILE
 from src.libs.services.logger.logger import log
+from src.libs.utils.prompting import create_dashed_filename_marker
 from src.libs.utils.file_system import (
     copy_to_clipboard,
     get_gitignore_patters_list,
@@ -148,7 +149,7 @@ class PromptConstructorCommand(BaseCommand):
         if content is None:
             return
 
-        log_file.write(f"--- Filename {file_path.relative_to(self.project_root)} ---\n\n")
+        log_file.write(create_dashed_filename_marker(file_path, self.project_root))
         log_file.write(content)
         log_file.write("\n\n")
 
@@ -174,7 +175,7 @@ class PromptConstructorCommand(BaseCommand):
         content: str = read_file_content(file_path)
 
         # @TODO: for the marker, we can create a reusable function to get the marker and apply it all through the prompt.py class.
-        log_file.write(f"--- Filename {file_path.relative_to(self.project_root)} ---\n\n")
+        log_file.write(create_dashed_filename_marker(file_path, self.project_root))
         log_file.write(content)
         log_file.write("\n\n")
 
@@ -233,10 +234,11 @@ class PromptConstructorCommand(BaseCommand):
         if new_content:
             log_file.seek(0)
             content = log_file.read()
-            file_marker: str = f"--- Filename {import_path.relative_to(self.project_root)} ---"
+            file_marker: str = create_dashed_filename_marker(import_path, self.project_root, blank_lines=False)
 
             if file_marker in content:
                 start_pos = content.index(file_marker)
+                # @TODO: create a reusable function to get the next marker position.
                 next_marker_pos = content.find("--- Filename", start_pos + len(file_marker))
                 if next_marker_pos == -1:
                     next_marker_pos = len(content)
