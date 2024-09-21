@@ -61,6 +61,10 @@ def is_path_directory(path: Path) -> bool:
     return path.is_dir()
 
 
+def path_exists(path: Path) -> bool:
+    return path.exists()
+
+
 def get_files_match_pattern(directory: Path, pattern: str) -> List[Path]:
     return list(directory.rglob(pattern))
 

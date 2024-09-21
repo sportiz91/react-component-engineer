@@ -13,6 +13,9 @@ from src.libs.utils.file_system import (
     should_ignore_file,
     is_text_file_mimetype_or_allowed_file,
     read_file_content,
+    path_exists,
+    is_path_directory,
+    get_files_match_pattern,
 )
 from src.libs.utils.code_analysis import (
     get_unused_code_ranges,
@@ -55,7 +58,7 @@ class PromptConstructorCommand(BaseCommand):
                 filename: str = await get_user_input("Enter the filename (e.g., src/apps/console/main.py): ")
                 start_file: Path = self.project_root / filename
 
-                if not start_file.exists():
+                if not path_exists(start_file):
                     self.console.print(f"File {start_file} does not exist.", style="bold red")
                     return
 
@@ -125,14 +128,14 @@ class PromptConstructorCommand(BaseCommand):
 
     def process_multiple_folders(self, folders: List[Path], log_file) -> None:
         for folder in folders:
-            if not folder.exists() or not folder.is_dir():
+            if not path_exists(folder) or not is_path_directory(folder):
                 self.console.print(f"Folder {folder} does not exist or is not a directory. Skipping.", style="bold yellow")
                 continue
             self.process_folder(folder, log_file)
             log_file.write("\n")
 
     def process_folder(self, folder_path: Path, log_file) -> None:
-        for file_path in folder_path.rglob("*"):
+        for file_path in get_files_match_pattern(folder_path, "*"):
             if file_path.is_file() and not self.should_ignore(file_path):
                 self.write_file_content(file_path, log_file)
 
@@ -168,9 +171,9 @@ class PromptConstructorCommand(BaseCommand):
 
         self.processed_files.add(file_path)
 
-        with open(file_path, "r", encoding="utf-8") as source_file:
-            content = source_file.read()
+        content: str = read_file_content(file_path)
 
+        # @TODO: for the marker, we can create a reusable function to get the marker and apply it all through the prompt.py class.
         log_file.write(f"--- Filename {file_path.relative_to(self.project_root)} ---\n\n")
         log_file.write(content)
         log_file.write("\n\n")
@@ -179,6 +182,8 @@ class PromptConstructorCommand(BaseCommand):
         for import_path, imported_names in imports.items():
             self.process_import_file(import_path, imported_names, file_path, log_file, programatically_imports)
 
+    # @TODO: this function can be all refactored, is too long and has too many responsibilities.
+    # Maybe we can split this one under many smaller utils that we can place in our folders.
     def process_import_file(self, import_path: Path, imported_names: Set[str], importing_file: Path, log_file, programatically_imports) -> None:
         log(f"Starting process_import_file for {import_path}")
         log(f"Imported names: {imported_names}")
@@ -191,8 +196,7 @@ class PromptConstructorCommand(BaseCommand):
             log(f"Ignoring file: {import_path}")
             return
 
-        with open(import_path, "r", encoding="utf-8") as source_file:
-            content = source_file.read()
+        content: str = read_file_content(import_path)
 
         unused_ranges = self.get_unused_code(content, imported_names, import_path, programatically_imports)
         log(f"Unused ranges: {unused_ranges}")
@@ -202,7 +206,7 @@ class PromptConstructorCommand(BaseCommand):
 
         lines_to_remove: set = set()
         for start, end in unused_ranges:
-            lines_to_remove.update(range(start - 1, end))  # Convert to 0-indexed
+            lines_to_remove.update(range(start - 1, end))
 
         new_lines = []
         new_content = False
@@ -232,16 +236,13 @@ class PromptConstructorCommand(BaseCommand):
             file_marker: str = f"--- Filename {import_path.relative_to(self.project_root)} ---"
 
             if file_marker in content:
-                # Find the position of the next file marker or the end of the file
                 start_pos = content.index(file_marker)
                 next_marker_pos = content.find("--- Filename", start_pos + len(file_marker))
                 if next_marker_pos == -1:
                     next_marker_pos = len(content)
 
-                # Insert the new content just before the next file marker or at the end of the file
                 updated_content = content[:next_marker_pos].rstrip() + "\n\n" + final_content + "\n\n" + content[next_marker_pos:]
             else:
-                # If the file marker doesn't exist, add it at the end of the file
                 updated_content = content.rstrip() + f"\n\n{file_marker}\n\n{final_content}\n\n"
 
             log_file.seek(0)
@@ -271,8 +272,7 @@ class PromptConstructorCommand(BaseCommand):
     def format_prompt_log(self):
         prompt_log_path = self.project_root / "prompt.log"
         try:
-            with open(prompt_log_path, "r", encoding="utf-8", errors="ignore") as file:
-                content = file.read()
+            content: str = read_file_content(prompt_log_path)
 
             content = remove_non_printable_characters(content)
             lines = content.split("\n")
