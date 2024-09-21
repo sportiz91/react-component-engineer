@@ -1,4 +1,5 @@
 from typing import List
+import re
 
 
 import textwrap
@@ -25,3 +26,7 @@ def wrap_text(text: str, max_width: int = 120) -> str:
 
 def get_function_indent(line: str) -> int:
     return len(line) - len(line.lstrip())
+
+
+def remove_non_printable_characters(text: str) -> str:
+    return re.sub(r"[^\x20-\x7E\n\r\t]", "", text)
