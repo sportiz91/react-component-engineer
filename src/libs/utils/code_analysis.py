@@ -198,12 +198,12 @@ def process_lines(lines: List[str]) -> List[str]:
 
     for line in lines:
         if line.strip():
-            if blank_line_count > 0:
-                new_lines.extend([""] * min(blank_line_count, 2))
-            new_lines.append(line)
             blank_line_count = 0
+            new_lines.append(line)
 
         else:
             blank_line_count += 1
+            if blank_line_count <= 2:
+                new_lines.append(line)
 
     return new_lines

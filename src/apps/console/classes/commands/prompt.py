@@ -257,9 +257,9 @@ class PromptConstructorCommand(BaseCommand):
         try:
             content: str = read_file_content(prompt_log_path)
 
-            content = remove_non_printable_characters(content)
-            lines = content.split("\n")
-            formatted_content = remove_blank_lines_from_code_lines(lines)
+            formatted_content: str = remove_non_printable_characters(content)
+            lines: list[str] = content.split("\n")
+            formatted_content: str = remove_blank_lines_from_code_lines(lines)
 
             with open(prompt_log_path, "w", encoding="utf-8") as file:
                 file.write(formatted_content)
