@@ -7,7 +7,7 @@ from src.libs.helpers.console import get_user_input
 from src.libs.utils.string import wrap_text, remove_non_printable_characters
 from src.libs.utils.constants import CODE_CHANGES, ENTIRE_FILE
 from src.libs.services.logger.logger import log
-from src.libs.utils.prompting import create_dashed_filename_marker
+from src.libs.utils.prompting import create_dashed_filename_marker, update_content_dashed_marker
 from src.libs.utils.file_system import (
     copy_to_clipboard,
     get_gitignore_patters_list,
@@ -17,11 +17,16 @@ from src.libs.utils.file_system import (
     path_exists,
     is_path_directory,
     get_files_match_pattern,
+    read_log_file,
+    write_log_file,
+    write_log_file_from_start,
 )
 from src.libs.utils.code_analysis import (
     get_unused_code_ranges,
     get_local_imports as get_local_imports_from_content,
     remove_blank_lines_from_code_lines,
+    filter_lines,
+    process_lines,
 )
 
 NAME: str = "prompt"
@@ -30,6 +35,7 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parents[5]
 PROCESSED_FILES: Set[Path] = set()
 ALLOWED_FILES: List[str] = [".gitignore", ".env.example", "pyproject.toml", ".flake8"]
 PROCESSED_CONTENT: Dict[Path, Set[int]] = {}
+DEFAULT_PROMPT_LOG_NAME: str = "prompt.log"
 
 
 class PromptConstructorCommand(BaseCommand):
@@ -38,6 +44,7 @@ class PromptConstructorCommand(BaseCommand):
     project_root: Path = PROJECT_ROOT
     processed_files: Set[Path] = PROCESSED_FILES
     processed_content: Dict[Path, Set[int]] = PROCESSED_CONTENT
+    prompt_log_name: str = DEFAULT_PROMPT_LOG_NAME
 
     async def execute(self, *args: Any, **kwargs: Any) -> None:
         self.ignore_patterns: List[str] = get_gitignore_patters_list(self.project_root)
@@ -52,7 +59,7 @@ class PromptConstructorCommand(BaseCommand):
             or "differences"
         )
 
-        prompt_log: Path = self.project_root / "prompt.log"
+        prompt_log: Path = self.project_root / self.prompt_log_name
 
         with open(prompt_log, "w+") as log_file:
             if mode == "traverse":
@@ -69,7 +76,7 @@ class PromptConstructorCommand(BaseCommand):
                 closing_message: str = await self.get_closing_message()
 
                 if starting_message:
-                    log_file.write(f"{wrap_text(starting_message)}\n\n")
+                    write_log_file(log_file, f"{wrap_text(starting_message)}\n\n")
 
                 if traverse_mode == "entire file":
                     self.process_file(start_file, log_file)
@@ -77,13 +84,13 @@ class PromptConstructorCommand(BaseCommand):
                     self.process_file_used_code_only(start_file, log_file)
 
                 if closing_message:
-                    log_file.write(f"\n{wrap_text(closing_message)}")
+                    write_log_file(log_file, f"\n{wrap_text(closing_message)}")
 
                 if entire_file_vs_code_differences == "differences":
-                    log_file.write(f"\n{wrap_text(CODE_CHANGES)}")
+                    write_log_file(log_file, f"\n{wrap_text(CODE_CHANGES)}")
 
                 elif entire_file_vs_code_differences == "entire":
-                    log_file.write(f"\n{wrap_text(ENTIRE_FILE)}")
+                    write_log_file(log_file, f"\n{wrap_text(ENTIRE_FILE)}")
 
             elif mode == "all":
                 folder_paths = await get_user_input("Enter the folder paths (space-separated, e.g., src/apps/console src/libs): ")
@@ -93,18 +100,18 @@ class PromptConstructorCommand(BaseCommand):
                 closing_message = await self.get_closing_message()
 
                 if starting_message:
-                    log_file.write(f"{wrap_text(starting_message)}\n\n")
+                    write_log_file(log_file, f"{wrap_text(starting_message)}\n\n")
 
                 self.process_multiple_folders(folders, log_file)
 
                 if closing_message:
-                    log_file.write(f"\n{wrap_text(closing_message)}")
+                    write_log_file(log_file, f"\n{wrap_text(closing_message)}")
 
                 if entire_file_vs_code_differences == "differences":
-                    log_file.write(f"\n{wrap_text(CODE_CHANGES)}")
+                    write_log_file(log_file, f"\n{wrap_text(CODE_CHANGES)}")
 
                 elif entire_file_vs_code_differences == "entire":
-                    log_file.write(f"\n{wrap_text(ENTIRE_FILE)}")
+                    write_log_file(log_file, f"\n{wrap_text(ENTIRE_FILE)}")
 
             else:
                 self.console.print(f"Invalid mode: {mode}", style="bold red")
@@ -133,7 +140,7 @@ class PromptConstructorCommand(BaseCommand):
                 self.console.print(f"Folder {folder} does not exist or is not a directory. Skipping.", style="bold yellow")
                 continue
             self.process_folder(folder, log_file)
-            log_file.write("\n")
+            write_log_file(log_file, "\n")
 
     def process_folder(self, folder_path: Path, log_file) -> None:
         for file_path in get_files_match_pattern(folder_path, "*"):
@@ -149,9 +156,9 @@ class PromptConstructorCommand(BaseCommand):
         if content is None:
             return
 
-        log_file.write(create_dashed_filename_marker(file_path, self.project_root))
-        log_file.write(content)
-        log_file.write("\n\n")
+        write_log_file(log_file, create_dashed_filename_marker(file_path, self.project_root))
+        write_log_file(log_file, content)
+        write_log_file(log_file, "\n\n")
 
     def process_file(self, file_path: Path, log_file) -> None:
         if file_path in self.processed_files or self.should_ignore(file_path):
@@ -174,17 +181,14 @@ class PromptConstructorCommand(BaseCommand):
 
         content: str = read_file_content(file_path)
 
-        # @TODO: for the marker, we can create a reusable function to get the marker and apply it all through the prompt.py class.
-        log_file.write(create_dashed_filename_marker(file_path, self.project_root))
-        log_file.write(content)
-        log_file.write("\n\n")
+        write_log_file(log_file, create_dashed_filename_marker(file_path, self.project_root))
+        write_log_file(log_file, content)
+        write_log_file(log_file, "\n\n")
 
         imports, programatically_imports = self.get_local_imports(file_path)
         for import_path, imported_names in imports.items():
             self.process_import_file(import_path, imported_names, file_path, log_file, programatically_imports)
 
-    # @TODO: this function can be all refactored, is too long and has too many responsibilities.
-    # Maybe we can split this one under many smaller utils that we can place in our folders.
     def process_import_file(self, import_path: Path, imported_names: Set[str], importing_file: Path, log_file, programatically_imports) -> None:
         log(f"Starting process_import_file for {import_path}")
         log(f"Imported names: {imported_names}")
@@ -209,20 +213,11 @@ class PromptConstructorCommand(BaseCommand):
         for start, end in unused_ranges:
             lines_to_remove.update(range(start - 1, end))
 
-        new_lines = []
+        new_lines: List[str] = process_lines(filter_lines(lines, lines_to_remove))
         new_content = False
-        blank_line_count = 0
-
         for i, line in enumerate(lines):
             if i not in lines_to_remove:
                 is_blank_line: bool = line.strip() == ""
-                if is_blank_line:
-                    if blank_line_count < 2:
-                        new_lines.append(line)
-                        blank_line_count += 1
-                else:
-                    new_lines.append(line)
-                    blank_line_count = 0
 
                 line_hash = hash(line)
                 if line_hash not in self.processed_content[import_path] and not is_blank_line:
@@ -232,24 +227,10 @@ class PromptConstructorCommand(BaseCommand):
         final_content = "".join(new_lines)
 
         if new_content:
-            log_file.seek(0)
-            content = log_file.read()
+            content = read_log_file(log_file)
             file_marker: str = create_dashed_filename_marker(import_path, self.project_root, blank_lines=False)
-
-            if file_marker in content:
-                start_pos = content.index(file_marker)
-                # @TODO: create a reusable function to get the next marker position.
-                next_marker_pos = content.find("--- Filename", start_pos + len(file_marker))
-                if next_marker_pos == -1:
-                    next_marker_pos = len(content)
-
-                updated_content = content[:next_marker_pos].rstrip() + "\n\n" + final_content + "\n\n" + content[next_marker_pos:]
-            else:
-                updated_content = content.rstrip() + f"\n\n{file_marker}\n\n{final_content}\n\n"
-
-            log_file.seek(0)
-            log_file.truncate()
-            log_file.write(updated_content)
+            updated_content: str = update_content_dashed_marker(content, file_marker, final_content)
+            write_log_file_from_start(log_file, updated_content)
 
         if import_path not in self.processed_files:
             self.processed_files.add(import_path)
@@ -272,7 +253,7 @@ class PromptConstructorCommand(BaseCommand):
         return get_local_imports_from_content(content, self.project_root, self.ignore_patterns, ALLOWED_FILES)
 
     def format_prompt_log(self):
-        prompt_log_path = self.project_root / "prompt.log"
+        prompt_log_path = self.project_root / self.prompt_log_name
         try:
             content: str = read_file_content(prompt_log_path)
 

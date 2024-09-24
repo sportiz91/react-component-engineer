@@ -57,6 +57,21 @@ def read_file_content(file_path: Path) -> Optional[str]:
         return f"Error reading file: {str(e)}"
 
 
+def read_log_file(log_file) -> str:
+    log_file.seek(0)
+    return log_file.read()
+
+
+def write_log_file(log_file, content: str) -> None:
+    log_file.write(content)
+
+
+def write_log_file_from_start(log_file, content: str) -> None:
+    log_file.seek(0)
+    log_file.truncate()
+    write_log_file(log_file, content)
+
+
 def is_path_directory(path: Path) -> bool:
     return path.is_dir()
 

@@ -186,3 +186,24 @@ def get_unused_code_ranges(content: str, imported_names: Set[str], file_path: Pa
     unused_ranges = find_unused_code_ranges(tree, used_names, used_classes, class_methods)
 
     return unused_ranges
+
+
+def filter_lines(lines: List[str], lines_to_remove: Set[int]) -> List[str]:
+    return [line for i, line in enumerate(lines) if i not in lines_to_remove]
+
+
+def process_lines(lines: List[str]) -> List[str]:
+    new_lines = []
+    blank_line_count = 0
+
+    for line in lines:
+        if line.strip():
+            if blank_line_count > 0:
+                new_lines.extend([""] * min(blank_line_count, 2))
+            new_lines.append(line)
+            blank_line_count = 0
+
+        else:
+            blank_line_count += 1
+
+    return new_lines
