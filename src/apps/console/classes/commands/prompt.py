@@ -35,6 +35,7 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parents[5]
 PROCESSED_FILES: Set[Path] = set()
 ALLOWED_FILES: List[str] = [".gitignore", ".env.example", "pyproject.toml", ".flake8"]
 PROCESSED_CONTENT: Dict[Path, Set[int]] = {}
+ALIAS_MAPPING: Dict[str, str] = {}
 DEFAULT_PROMPT_LOG_NAME: str = "prompt.log"
 
 
@@ -45,6 +46,7 @@ class PromptConstructorCommand(BaseCommand):
     processed_files: Set[Path] = PROCESSED_FILES
     processed_content: Dict[Path, Set[int]] = PROCESSED_CONTENT
     prompt_log_name: str = DEFAULT_PROMPT_LOG_NAME
+    processed_alias_mapping: Dict[str, str] = ALIAS_MAPPING
 
     async def execute(self, *args: Any, **kwargs: Any) -> None:
         self.ignore_patterns: List[str] = get_gitignore_patters_list(self.project_root)
@@ -169,7 +171,8 @@ class PromptConstructorCommand(BaseCommand):
         self.write_file_content(file_path, log_file)
 
         if self.get_mode() == "traverse":
-            local_imports, _ = self.get_local_imports(file_path)
+            local_imports, _, alias_mapping = self.get_local_imports(file_path)
+            self.processed_alias_mapping.update(alias_mapping)
             for import_path, _ in local_imports.items():
                 self.process_file(import_path, log_file)
 
@@ -185,11 +188,14 @@ class PromptConstructorCommand(BaseCommand):
         write_log_file(log_file, content)
         write_log_file(log_file, "\n\n")
 
-        imports, programatically_imports = self.get_local_imports(file_path)
+        imports, programatically_imports, alias_mapping = self.get_local_imports(file_path)
+        self.processed_alias_mapping.update(alias_mapping)
         for import_path, imported_names in imports.items():
-            self.process_import_file(import_path, imported_names, file_path, log_file, programatically_imports)
+            self.process_import_file(import_path, imported_names, file_path, log_file, programatically_imports, alias_mapping)
 
-    def process_import_file(self, import_path: Path, imported_names: Set[str], importing_file: Path, log_file, programatically_imports) -> None:
+    def process_import_file(
+        self, import_path: Path, imported_names: Set[str], importing_file: Path, log_file, programatically_imports: Dict[Path, Set[str]], alias_mapping: Dict[str, str]
+    ) -> None:
         log(f"Starting process_import_file for {import_path}")
         log(f"Imported names: {imported_names}")
         log(f"Self processed content: {self.processed_content}")
@@ -203,7 +209,7 @@ class PromptConstructorCommand(BaseCommand):
 
         content: str = read_file_content(import_path)
 
-        unused_ranges = self.get_unused_code(content, imported_names, import_path, programatically_imports)
+        unused_ranges = self.get_unused_code(content, imported_names, import_path, programatically_imports, alias_mapping)
         log(f"Unused ranges: {unused_ranges}")
 
         lines: list[str] = content.splitlines(keepends=True)
@@ -234,21 +240,24 @@ class PromptConstructorCommand(BaseCommand):
 
         if import_path not in self.processed_files:
             self.processed_files.add(import_path)
-            new_imports, programatically_imports = self.get_local_imports(import_path)
+            new_imports, programatically_imports, alias_mapping = self.get_local_imports(import_path)
+            self.processed_alias_mapping.update(alias_mapping)
             for new_import_path, new_imported_names in new_imports.items():
-                self.process_import_file(new_import_path, new_imported_names, import_path, log_file, programatically_imports)
+                self.process_import_file(new_import_path, new_imported_names, import_path, log_file, programatically_imports, alias_mapping)
 
         log(f"Added {len(new_lines)} lines from {import_path}")
         log(f"Finished processing {import_path}")
 
-    def get_unused_code(self, content: str, imported_names: Set[str], file_path: Path, programatically_imports: Dict[Path, Set[str]]) -> List[Tuple[int, int]]:
-        return get_unused_code_ranges(content, imported_names, file_path, programatically_imports)
+    def get_unused_code(
+        self, content: str, imported_names: Set[str], file_path: Path, programatically_imports: Dict[Path, Set[str]], alias_mapping: Dict[str, str]
+    ) -> List[Tuple[int, int]]:
+        return get_unused_code_ranges(content, imported_names, file_path, programatically_imports, alias_mapping)
 
-    def get_local_imports(self, file_path: Path) -> Tuple[Dict[Path, Set[str]], Dict[Path, Set[str]]]:
+    def get_local_imports(self, file_path: Path) -> Tuple[Dict[Path, Set[str]], Dict[Path, Set[str]], Dict[str, str]]:
         content: str | None = read_file_content(file_path)
 
         if content is None:
-            return {}, {}
+            return {}, {}, {}
 
         return get_local_imports_from_content(content, self.project_root, self.ignore_patterns, ALLOWED_FILES)
 
