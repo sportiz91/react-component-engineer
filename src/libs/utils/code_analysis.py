@@ -76,7 +76,7 @@ def get_imports_from_import_node(node: ast.Import, project_root: Path) -> Tuple[
             if module_path:
                 imported_name: str = alias.name
                 alias_name: str = alias.asname or alias.name
-                imports.setdefault(module_path, set()).add(alias_name)
+                imports.setdefault(module_path, set()).add(imported_name)
                 if alias.asname:
                     alias_mapping[alias_name] = imported_name
 
@@ -106,7 +106,7 @@ def get_imports_from_import_from_node(node: ast.ImportFrom, project_root: Path) 
             for alias in node.names:
                 imported_name: str = alias.name
                 alias_name: str = alias.asname or alias.name
-                imports.setdefault(module_path, set()).add(alias_name)
+                imports.setdefault(module_path, set()).add(imported_name)
                 if alias.asname:
                     alias_mapping[alias_name] = imported_name
 
@@ -203,6 +203,9 @@ def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alia
     class NameCollector(ast.NodeVisitor):
         def visit_Name(self, node):
             name = node.id
+            # @TODO: the problem is here. The mapping is done as {get_local_imports_from_content: get_local_imports} and I think:
+            # a) Or either it should be the other way round, b) we should create a loop and whenever we find the name,
+            # we make the exchange.
             if name in alias_mapping:
                 name: str = alias_mapping[name]
             if isinstance(node.ctx, ast.Store):
