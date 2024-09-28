@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 from typing import Set, List, Any, Dict, Tuple
 
@@ -6,7 +7,6 @@ from src.apps.console.classes.commands.base import BaseCommand
 from src.libs.helpers.console import get_user_input
 from src.libs.utils.string import wrap_text, remove_non_printable_characters
 from src.libs.utils.constants import CODE_CHANGES, ENTIRE_FILE
-from src.libs.services.logger.logger import log
 from src.libs.utils.prompting import create_dashed_filename_marker, update_content_dashed_marker
 from src.libs.utils.file_system import (
     copy_to_clipboard,
@@ -22,12 +22,12 @@ from src.libs.utils.file_system import (
     write_log_file_from_start,
 )
 from src.libs.utils.code_analysis import (
-    get_unused_code_ranges,
+    get_unused_code_nodes,
     get_local_imports as get_local_imports_from_content,
     remove_blank_lines_from_code_lines,
-    filter_lines,
-    process_lines,
 )
+from src.libs.services.logger.logger import log
+
 
 NAME: str = "prompt"
 DESCRIPTION: str = "Construct a prompt log file from given Python files or all files in specified folders"
@@ -194,79 +194,71 @@ class PromptConstructorCommand(BaseCommand):
             self.process_import_file(import_path, imported_names, file_path, log_file, programatically_imports, alias_mapping)
 
     def process_import_file(
-        self, import_path: Path, imported_names: Set[str], importing_file: Path, log_file, programatically_imports: Dict[Path, Set[str]], alias_mapping: Dict[str, str]
+        self,
+        import_path: Path,
+        imported_names: Set[str],
+        importing_file: Path,
+        log_file,
+        programatically_imports: Dict[Path, Set[str]],
+        alias_mapping: Dict[str, str],
     ) -> None:
-        log(f"Starting process_import_file for {import_path}")
-        log(f"Imported names: {imported_names}")
-        log(f"Self processed content: {self.processed_content}")
-
-        if import_path not in self.processed_content:
-            self.processed_content[import_path] = set()
-
         if self.should_ignore(import_path):
-            log(f"Ignoring file: {import_path}")
             return
 
         content: str = read_file_content(import_path)
+        _, used_nodes = get_unused_code_nodes(content, imported_names, import_path, programatically_imports, alias_mapping)
+
+        # @TODO: things are working better now. I but I have more bugs: the last time I ran the traverse command, the
+        # --- Filename src/libs/helpers/console.py --- got a bug ->
+        """
+        The top levels:
+        
+                style: Style = Style.from_dict(
+            {
+                "prompt": "cyan bold",
+            }
+        )
+        session: PromptSession[str] = PromptSession(style=style)
+        console: Console = Console()
+
+        kb = KeyBindings()
+        
+        weren't included in the file. We should include it somehow.
 
         """
-        @TODO: my ideas, delete when working.
+        new_nodes = []
+        for node in used_nodes:
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef, ast.Assign, ast.AnnAssign, ast.Import, ast.ImportFrom)):
+                node_representation: str = ast.dump(node)
+                if node_representation not in self.processed_content.get(import_path, set()):
+                    self.processed_content.setdefault(import_path, set()).add(node_representation)
+                    new_nodes.append(node)
+            else:
+                continue
 
-        My idea is, maybe, to replace the self.processed_content with a dictionary of sets, where the key is the import path
-        And the value is a set of hashes of the processed ast nodes.
+        if new_nodes:
+            code_snippets: list[str] = [ast.unparse(node) for node in new_nodes]
+            code: str = "\n\n".join(code_snippets)
 
-        In order to do that, maybe it's advisable to replace the collect_defined_and_used_names and find_unused_code_ranges functions
-        Inside the get_unused_code_ranges function (the one that is executed in the self.get_unused_code method) for functions
-        that returns the collected ast nodes and unused ast nodes.
-        """
-        unused_ranges: List[Tuple[int, int]] = self.get_unused_code(content, imported_names, import_path, programatically_imports, alias_mapping)
-        log(f"Unused ranges: {unused_ranges}")
-
-        lines: list[str] = content.splitlines(keepends=True)
-        log(f"The lines: {lines}")
-
-        lines_to_remove: set = set()
-        for start, end in unused_ranges:
-            lines_to_remove.update(range(start - 1, end))
-
-        new_lines: List[str] = process_lines(filter_lines(lines, lines_to_remove))
-        new_content: bool = False
-        for i, line in enumerate(lines):
-            if i not in lines_to_remove:
-                is_blank_line: bool = line.strip() == ""
-
-                line_hash: int = hash(line)
-                if line_hash not in self.processed_content[import_path] and not is_blank_line:
-                    self.processed_content[import_path].add(line_hash)
-                    new_content = True
-
-        final_content: str = "".join(new_lines)
-
-        # @TODO: in here I think I need to add a new step: I need to get the content of the marker
-        # and then compare it with the final content. Then I need to add to the end of the marker those lines
-        # of the final content that are not in the marker content. I think I need to do this
-        # in the update_content_dashed_marker function
-
-        if new_content:
             log_file_content: str = read_log_file(log_file)
             file_marker: str = create_dashed_filename_marker(import_path, self.project_root, blank_lines=False)
-            updated_content: str = update_content_dashed_marker(log_file_content, file_marker, final_content)
+            updated_content: str = update_content_dashed_marker(log_file_content, file_marker, code)
             write_log_file_from_start(log_file, updated_content)
 
+        # Recursively process imports
         if import_path not in self.processed_files:
             self.processed_files.add(import_path)
             new_imports, programatically_imports, alias_mapping = self.get_local_imports(import_path)
             self.processed_alias_mapping.update(alias_mapping)
             for new_import_path, new_imported_names in new_imports.items():
-                self.process_import_file(new_import_path, new_imported_names, import_path, log_file, programatically_imports, alias_mapping)
-
-        log(f"Added {len(new_lines)} lines from {import_path}")
-        log(f"Finished processing {import_path}")
-
-    def get_unused_code(
-        self, content: str, imported_names: Set[str], file_path: Path, programatically_imports: Dict[Path, Set[str]], alias_mapping: Dict[str, str]
-    ) -> List[Tuple[int, int]]:
-        return get_unused_code_ranges(content, imported_names, file_path, programatically_imports, alias_mapping)
+                self.process_import_file(
+                    new_import_path,
+                    new_imported_names,
+                    import_path,
+                    log_file,
+                    programatically_imports,
+                    alias_mapping,
+                )
 
     def get_local_imports(self, file_path: Path) -> Tuple[Dict[Path, Set[str]], Dict[Path, Set[str]], Dict[str, str]]:
         content: str | None = read_file_content(file_path)
