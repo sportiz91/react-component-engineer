@@ -209,7 +209,17 @@ class PromptConstructorCommand(BaseCommand):
 
         content: str = read_file_content(import_path)
 
-        unused_ranges = self.get_unused_code(content, imported_names, import_path, programatically_imports, alias_mapping)
+        """
+        @TODO: my ideas, delete when working.
+
+        My idea is, maybe, to replace the self.processed_content with a dictionary of sets, where the key is the import path
+        And the value is a set of hashes of the processed ast nodes.
+
+        In order to do that, maybe it's advisable to replace the collect_defined_and_used_names and find_unused_code_ranges functions
+        Inside the get_unused_code_ranges function (the one that is executed in the self.get_unused_code method) for functions
+        that returns the collected ast nodes and unused ast nodes.
+        """
+        unused_ranges: List[Tuple[int, int]] = self.get_unused_code(content, imported_names, import_path, programatically_imports, alias_mapping)
         log(f"Unused ranges: {unused_ranges}")
 
         lines: list[str] = content.splitlines(keepends=True)
@@ -220,22 +230,27 @@ class PromptConstructorCommand(BaseCommand):
             lines_to_remove.update(range(start - 1, end))
 
         new_lines: List[str] = process_lines(filter_lines(lines, lines_to_remove))
-        new_content = False
+        new_content: bool = False
         for i, line in enumerate(lines):
             if i not in lines_to_remove:
                 is_blank_line: bool = line.strip() == ""
 
-                line_hash = hash(line)
+                line_hash: int = hash(line)
                 if line_hash not in self.processed_content[import_path] and not is_blank_line:
                     self.processed_content[import_path].add(line_hash)
                     new_content = True
 
-        final_content = "".join(new_lines)
+        final_content: str = "".join(new_lines)
+
+        # @TODO: in here I think I need to add a new step: I need to get the content of the marker
+        # and then compare it with the final content. Then I need to add to the end of the marker those lines
+        # of the final content that are not in the marker content. I think I need to do this
+        # in the update_content_dashed_marker function
 
         if new_content:
-            content = read_log_file(log_file)
+            log_file_content: str = read_log_file(log_file)
             file_marker: str = create_dashed_filename_marker(import_path, self.project_root, blank_lines=False)
-            updated_content: str = update_content_dashed_marker(content, file_marker, final_content)
+            updated_content: str = update_content_dashed_marker(log_file_content, file_marker, final_content)
             write_log_file_from_start(log_file, updated_content)
 
         if import_path not in self.processed_files:
