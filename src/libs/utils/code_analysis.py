@@ -276,3 +276,43 @@ def process_lines(lines: List[str]) -> List[str]:
                 new_lines.append(line)
 
     return new_lines
+
+
+def get_node_source_code_with_decorators(source: str, node: ast.AST) -> Optional[str]:
+    if not hasattr(node, "lineno") or not hasattr(node, "end_lineno"):
+        return None
+
+    lines = source.splitlines()
+
+    if hasattr(node, "decorator_list") and node.decorator_list:
+        first_decorator = node.decorator_list[0]
+        start_lineno = first_decorator.lineno
+        decorator_col_offset = first_decorator.col_offset
+
+        start_line = lines[start_lineno - 1]
+
+        at_pos = start_line.rfind("@", 0, decorator_col_offset)
+
+        if at_pos != -1:
+            start_col_offset = at_pos
+        else:
+            start_col_offset = 0
+    else:
+        start_lineno = node.lineno
+        start_col_offset = node.col_offset
+
+    end_lineno = node.end_lineno
+    end_col_offset = node.end_col_offset
+
+    start_lineno -= 1
+    end_lineno -= 1
+
+    if start_lineno == end_lineno:
+        return lines[start_lineno][start_col_offset:end_col_offset]
+
+    texts: list = [lines[start_lineno][start_col_offset:]]
+    if end_lineno - start_lineno > 1:
+        texts.extend(lines[start_lineno + 1 : end_lineno])
+    texts.append(lines[end_lineno][:end_col_offset])
+
+    return "\n".join(texts)

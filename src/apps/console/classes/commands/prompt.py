@@ -25,6 +25,7 @@ from src.libs.utils.code_analysis import (
     get_unused_code_nodes,
     get_local_imports as get_local_imports_from_content,
     remove_blank_lines_from_code_lines,
+    get_node_source_code_with_decorators,
 )
 
 
@@ -209,9 +210,9 @@ class PromptConstructorCommand(BaseCommand):
         if content is None:
             return
 
-        tree = ast.parse(content)
+        tree = ast.parse(content, type_comments=True)
 
-        _, used_nodes = get_unused_code_nodes(content, imported_names, import_path, programatically_imports, alias_mapping, tree=tree)  # Pass the parsed tree to reuse
+        _, used_nodes = get_unused_code_nodes(content, imported_names, import_path, programatically_imports, alias_mapping, tree=tree)
 
         new_nodes = []
         for node in used_nodes:
@@ -235,13 +236,12 @@ class PromptConstructorCommand(BaseCommand):
                 continue
 
         if new_nodes:
-            code_snippets = []
+            code_snippets: list = []
             for node in new_nodes:
-                source_segment: str | None = ast.get_source_segment(content, node)
+                source_segment: str | None = get_node_source_code_with_decorators(content, node)
                 if source_segment is not None:
                     code_snippets.append(source_segment)
                     continue
-
                 code_snippets.append(ast.unparse(node))
             code: str = "\n\n".join(code_snippets)
 
