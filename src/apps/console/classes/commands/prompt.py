@@ -208,24 +208,6 @@ class PromptConstructorCommand(BaseCommand):
         content: str = read_file_content(import_path)
         _, used_nodes = get_unused_code_nodes(content, imported_names, import_path, programatically_imports, alias_mapping)
 
-        # @TODO: things are working better now. I but I have more bugs: the last time I ran the traverse command, the
-        # --- Filename src/libs/helpers/console.py --- got a bug ->
-        """
-        The top levels:
-        
-                style: Style = Style.from_dict(
-            {
-                "prompt": "cyan bold",
-            }
-        )
-        session: PromptSession[str] = PromptSession(style=style)
-        console: Console = Console()
-
-        kb = KeyBindings()
-        
-        weren't included in the file. We should include it somehow.
-
-        """
         new_nodes = []
         for node in used_nodes:
             if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef, ast.Assign, ast.AnnAssign, ast.Import, ast.ImportFrom)):
