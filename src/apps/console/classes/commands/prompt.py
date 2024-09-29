@@ -205,11 +205,28 @@ class PromptConstructorCommand(BaseCommand):
             return
 
         content: str = read_file_content(import_path)
-        _, used_nodes = get_unused_code_nodes(content, imported_names, import_path, programatically_imports, alias_mapping)
+
+        if content is None:
+            return
+
+        tree = ast.parse(content)
+
+        _, used_nodes = get_unused_code_nodes(content, imported_names, import_path, programatically_imports, alias_mapping, tree=tree)  # Pass the parsed tree to reuse
 
         new_nodes = []
         for node in used_nodes:
-            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef, ast.Assign, ast.AnnAssign, ast.Import, ast.ImportFrom)):
+            if isinstance(
+                node,
+                (
+                    ast.ClassDef,
+                    ast.FunctionDef,
+                    ast.AsyncFunctionDef,
+                    ast.Assign,
+                    ast.AnnAssign,
+                    ast.Import,
+                    ast.ImportFrom,
+                ),
+            ):
                 node_representation: str = ast.dump(node)
                 if node_representation not in self.processed_content.get(import_path, set()):
                     self.processed_content.setdefault(import_path, set()).add(node_representation)
@@ -218,7 +235,14 @@ class PromptConstructorCommand(BaseCommand):
                 continue
 
         if new_nodes:
-            code_snippets: list[str] = [ast.unparse(node) for node in new_nodes]
+            code_snippets = []
+            for node in new_nodes:
+                source_segment: str | None = ast.get_source_segment(content, node)
+                if source_segment is not None:
+                    code_snippets.append(source_segment)
+                    continue
+
+                code_snippets.append(ast.unparse(node))
             code: str = "\n\n".join(code_snippets)
 
             log_file_content: str = read_log_file(log_file)
@@ -226,7 +250,6 @@ class PromptConstructorCommand(BaseCommand):
             updated_content: str = update_content_dashed_marker(log_file_content, file_marker, code)
             write_log_file_from_start(log_file, updated_content)
 
-        # Recursively process imports
         if import_path not in self.processed_files:
             self.processed_files.add(import_path)
             new_imports, programatically_imports, alias_mapping = self.get_local_imports(import_path)

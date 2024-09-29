@@ -246,14 +246,15 @@ def find_unused_code_nodes(
 
 
 def get_unused_code_nodes(
-    content: str, imported_names: Set[str], file_path: Path, programatically_imports: Dict[Path, Set[str]], alias_mapping: Dict[str, str]
+    content: str, imported_names: Set[str], file_path: Path, programatically_imports: Dict[Path, Set[str]], alias_mapping: Dict[str, str], tree: Optional[ast.AST] = None
 ) -> Tuple[List[ast.AST], List[ast.AST]]:
+    if tree is None:
+        tree = ast.parse(content)
 
-    tree = ast.parse(content)
     _, used_names, used_classes, class_methods = collect_defined_and_used_names(tree, imported_names, alias_mapping)
     unused_nodes, used_nodes = find_unused_code_nodes(tree, used_names, used_classes, class_methods, file_path, programatically_imports)
 
-    return unused_nodes, used_nodes
+    return (unused_nodes, used_nodes)
 
 
 def filter_lines(lines: List[str], lines_to_remove: Set[int]) -> List[str]:
