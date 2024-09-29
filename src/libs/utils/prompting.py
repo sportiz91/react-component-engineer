@@ -1,9 +1,9 @@
 from pathlib import Path
+import re
 
 
 def find_next_dashed_marker_position_in_content(content: str, file_marker: str) -> int:
     start_index: int = content.index(file_marker)
-
     next_marker_index: int = content.find("--- Filename", start_index + len(file_marker))
 
     if next_marker_index == -1:
@@ -43,8 +43,12 @@ def add_content_to_end(content: str, file_marker: str, new_content: str) -> str:
 
 def update_content_dashed_marker(content: str, file_marker: str, new_content: str) -> str:
     if file_marker in content:
-        next_marker_position: int = find_next_dashed_marker_position_in_content(content, file_marker)
-
-        return add_content_end_dashed_file_marker(content, next_marker_position, new_content)
-
-    return add_content_to_end(content, file_marker, new_content)
+        pattern = re.compile(re.escape(file_marker) + r"\n(.*?)(?=(\n--- Filename|\Z))", re.DOTALL)
+        match = pattern.search(content)
+        if match:
+            existing_content = match.group(1).rstrip()
+            combined_content = existing_content + "\n\n" + new_content
+            content = pattern.sub(f"{file_marker}\n\n{combined_content}\n\n", content)
+    else:
+        content += f"\n\n{file_marker}\n\n{new_content}\n"
+    return content

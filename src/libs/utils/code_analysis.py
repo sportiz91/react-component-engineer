@@ -53,19 +53,6 @@ def resolve_import_path(module_name: str, project_root: Path) -> Optional[Path]:
     return None
 
 
-# @TODO: delete when working
-# def get_imports_from_import_node(node: ast.Import, project_root: Path) -> Dict[Path, Set[str]]:
-#     imports: Dict[Path, Set[str]] = {}
-
-#     for alias in node.names:
-#         if is_local_module(alias.name, project_root):
-#             module_path = resolve_import_path(alias.name, project_root)
-#             if module_path:
-#                 imports.setdefault(module_path, set()).add(alias.asname or alias.name)
-
-#     return imports
-
-
 def get_imports_from_import_node(node: ast.Import, project_root: Path) -> Tuple[Dict[Path, Set[str]], Dict[str, str]]:
     imports: Dict[Path, Set[str]] = {}
     alias_mapping: Dict[str, str] = {}
@@ -81,19 +68,6 @@ def get_imports_from_import_node(node: ast.Import, project_root: Path) -> Tuple[
                     alias_mapping[alias_name] = imported_name
 
     return imports, alias_mapping
-
-
-# @TODO: delete when working
-# def get_imports_from_import_from_node(node: ast.ImportFrom, project_root: Path) -> Dict[Path, Set[str]]:
-#     imports: Dict[Path, Set[str]] = {}
-
-#     if node.module and is_local_module(node.module, project_root):
-#         module_path = resolve_import_path(node.module, project_root)
-#         if module_path:
-#             imported_names = {alias.asname or alias.name for alias in node.names}
-#             imports.setdefault(module_path, set()).update(imported_names)
-
-#     return imports
 
 
 def get_imports_from_import_from_node(node: ast.ImportFrom, project_root: Path) -> Tuple[Dict[Path, Set[str]], Dict[str, str]]:
@@ -130,11 +104,6 @@ def get_imports_from_programmatic_imports(node: ast.Call, project_root: Path, ig
     return imports
 
 
-# @TODO: voy por ver respuesta del ChatGPT: https://chatgpt.com/c/66f2d964-463c-8012-98e2-c45e196d9ef0.
-# Voy por modificar esta función para que también devuelva el alias mapping y luego usarlo en todos lados.
-# En la prompt el chat no tenía información de esta función, entonces tendríamos que pegarle esta función y decirle que la modifique
-# Para que retorne el alias mapping correctamente. No sería mala idea tampoco pegarlo todo denuevo como contexto (desde prompt.py)
-# Hasta code_analysis.py.
 def get_local_imports(
     content: str, project_root: Path, ignore_patterns: List[str] = [], allowed_files: List[str] = []
 ) -> Tuple[Dict[Path, Set[str]], Dict[Path, Set[str]], Dict[str, str]]:
@@ -163,49 +132,10 @@ def get_local_imports(
     return imports, programatically_imports, alias_mapping
 
 
-# @TODO: delete when working
-# def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str]) -> Tuple[Set[str], Set[str], Set[str], Dict[str, List[str]]]:
-#     class NameCollector(ast.NodeVisitor):
-#         def visit_Name(self, node):
-#             if isinstance(node.ctx, ast.Store):
-#                 defined_names.add(node.id)
-#             elif isinstance(node.ctx, ast.Load) and node.id not in __builtins__:
-#                 used_names.add(node.id)
-#                 if node.id in defined_names:
-#                     used_classes.add(node.id)
-#             self.generic_visit(node)
-
-#         def visit_ClassDef(self, node):
-#             defined_names.add(node.name)
-#             class_methods[node.name] = [m.name for m in node.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))]
-#             if node.name in imported_names:
-#                 used_classes.add(node.name)
-#             self.generic_visit(node)
-
-#     defined_names: Set[str] = set()
-#     used_names: Set[str] = set(imported_names)
-#     used_classes: Set[str] = set()
-#     class_methods: Dict[str, List[str]] = {}
-
-#     NameCollector().visit(tree)
-
-#     for class_name in used_classes:
-#         if class_name in class_methods:
-#             used_names.update(class_methods[class_name])
-
-#     return defined_names, used_names, used_classes, class_methods
-
-
 def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alias_mapping: Dict[str, str]) -> Tuple[Set[str], Set[str], Set[str], Dict[str, List[str]]]:
-    log("alias_mapping")
-    log(alias_mapping)
-
     class NameCollector(ast.NodeVisitor):
         def visit_Name(self, node):
             name = node.id
-            # @TODO: the problem is here. The mapping is done as {get_local_imports_from_content: get_local_imports} and I think:
-            # a) Or either it should be the other way round, b) we should create a loop and whenever we find the name,
-            # we make the exchange.
             if name in alias_mapping:
                 name: str = alias_mapping[name]
             if isinstance(node.ctx, ast.Store):
@@ -248,58 +178,77 @@ def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alia
     return defined_names, used_names, used_classes, class_methods
 
 
-def find_unused_code_ranges(tree: ast.AST, used_names: Set[str], used_classes: Set[str], class_methods: Dict[str, List[str]]) -> List[Tuple[int, int]]:
-    unused_ranges: List[Tuple[int, int]] = []
+def extract_assigned_names(node):
+    assigned_names = set()
 
-    for node in ast.walk(tree):
+    if isinstance(node, ast.Name):
+        assigned_names.add(node.id)
+    elif isinstance(node, ast.Attribute):
+        # For attributes like self.x = value
+        # You may decide to use node.attr or node.value.id
+        # Here, we'll use node.attr (e.g., 'x' in 'self.x')
+        assigned_names.add(node.attr)
+    elif isinstance(node, (ast.Tuple, ast.List)):
+        for elt in node.elts:
+            assigned_names.update(extract_assigned_names(elt))
+    elif isinstance(node, ast.Subscript):
+        # Subscript assignments like a[0] = value
+        # You might choose to handle this differently
+        pass  # Ignoring subscripts for now
+    elif isinstance(node, ast.Starred):
+        assigned_names.update(extract_assigned_names(node.value))
+    # Add more cases if needed
+    return assigned_names
+
+
+def find_unused_code_nodes(
+    tree: ast.AST,
+    used_names: Set[str],
+    used_classes: Set[str],
+    class_methods: Dict[str, List[str]],
+) -> Tuple[List[ast.AST], List[ast.AST]]:
+    unused_nodes: List[ast.AST] = []
+    used_nodes: List[ast.AST] = []
+
+    for node in tree.body:
         if isinstance(node, ast.ClassDef):
             if node.name not in used_names and node.name not in used_classes:
-                unused_ranges.append((node.lineno, node.end_lineno))
+                unused_nodes.append(node)
+            else:
+                used_nodes.append(node)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if node.decorator_list:
+                used_nodes.append(node)
                 continue
             is_method_of_used_class = any(node.name in methods for cls, methods in class_methods.items() if cls in used_classes)
             if node.name not in used_names and node.name != "__init__" and not is_method_of_used_class:
-                unused_ranges.append((node.lineno, node.end_lineno))
+                unused_nodes.append(node)
+            else:
+                used_nodes.append(node)
         elif isinstance(node, (ast.Assign, ast.AnnAssign)):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name):
-                        if target.id not in used_names and target.id not in used_classes:
-                            unused_ranges.append((node.lineno, node.end_lineno))
-            elif isinstance(node, ast.AnnAssign):
-                if isinstance(node.target, ast.Name):
-                    if node.target.id not in used_names and node.target.id not in used_classes:
-                        unused_ranges.append((node.lineno, node.end_lineno))
+            assigned_names = extract_assigned_names(node) if isinstance(node, (ast.Assign, ast.AnnAssign)) else set()
+            if not assigned_names or all(name not in used_names and name not in used_classes for name in assigned_names):
+                unused_nodes.append(node)
+            else:
+                used_nodes.append(node)
+        else:
+            # You might choose to handle other node types here if needed
+            used_nodes.append(node)
 
-    return unused_ranges
-
-
-# @TODO: delete when working
-# def get_unused_code_ranges(content: str, imported_names: Set[str], file_path: Path, programatically_imports: Dict[Path, Set[str]]) -> List[Tuple[int, int]]:
-#     if file_path in programatically_imports:
-#         return []
-
-#     tree = ast.parse(content)
-
-#     _, used_names, used_classes, class_methods = collect_defined_and_used_names(tree, imported_names)
-
-#     unused_ranges = find_unused_code_ranges(tree, used_names, used_classes, class_methods)
-
-#     return unused_ranges
+    return unused_nodes, used_nodes
 
 
-def get_unused_code_ranges(
+def get_unused_code_nodes(
     content: str, imported_names: Set[str], file_path: Path, programatically_imports: Dict[Path, Set[str]], alias_mapping: Dict[str, str]
-) -> List[Tuple[int, int]]:
+) -> Tuple[List[ast.AST], List[ast.AST]]:
     if file_path in programatically_imports:
-        return []
+        return [], []
 
     tree = ast.parse(content)
     _, used_names, used_classes, class_methods = collect_defined_and_used_names(tree, imported_names, alias_mapping)
-    unused_ranges: List[Tuple[int, int]] = find_unused_code_ranges(tree, used_names, used_classes, class_methods)
+    unused_nodes, used_nodes = find_unused_code_nodes(tree, used_names, used_classes, class_methods)
 
-    return unused_ranges
+    return unused_nodes, used_nodes
 
 
 def filter_lines(lines: List[str], lines_to_remove: Set[int]) -> List[str]:
