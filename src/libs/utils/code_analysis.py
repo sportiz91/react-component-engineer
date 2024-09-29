@@ -3,7 +3,6 @@ import ast
 from typing import Optional, List, Set, Dict, Tuple
 
 from src.libs.utils.file_system import should_ignore_file, is_path_directory, get_files_match_pattern
-from src.libs.services.logger.logger import log
 
 
 def remove_blank_lines_from_code_lines(lines: List[str]) -> str:
