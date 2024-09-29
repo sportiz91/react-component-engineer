@@ -26,7 +26,6 @@ from src.libs.utils.code_analysis import (
     get_local_imports as get_local_imports_from_content,
     remove_blank_lines_from_code_lines,
 )
-from src.libs.services.logger.logger import log
 
 
 NAME: str = "prompt"

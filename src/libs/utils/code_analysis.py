@@ -3,7 +3,6 @@ import ast
 from typing import Optional, List, Set, Dict, Tuple
 
 from src.libs.utils.file_system import should_ignore_file, is_path_directory, get_files_match_pattern
-from src.libs.services.logger.logger import log
 
 
 def remove_blank_lines_from_code_lines(lines: List[str]) -> str:
@@ -202,15 +201,17 @@ def extract_assigned_names(node):
 
 
 def find_unused_code_nodes(
-    tree: ast.AST,
-    used_names: Set[str],
-    used_classes: Set[str],
-    class_methods: Dict[str, List[str]],
+    tree: ast.AST, used_names: Set[str], used_classes: Set[str], class_methods: Dict[str, List[str]], file_path: Path, programatically_imports: Dict[Path, Set[str]]
 ) -> Tuple[List[ast.AST], List[ast.AST]]:
     unused_nodes: List[ast.AST] = []
     used_nodes: List[ast.AST] = []
 
+    is_file_path_in_programatically_imports: bool = file_path in programatically_imports
+
     for node in tree.body:
+        if is_file_path_in_programatically_imports:
+            used_nodes.append(node)
+            continue
         if isinstance(node, ast.ClassDef):
             if node.name not in used_names and node.name not in used_classes:
                 unused_nodes.append(node)
@@ -220,33 +221,37 @@ def find_unused_code_nodes(
             if node.decorator_list:
                 used_nodes.append(node)
                 continue
-            is_method_of_used_class = any(node.name in methods for cls, methods in class_methods.items() if cls in used_classes)
-            if node.name not in used_names and node.name != "__init__" and not is_method_of_used_class:
+            is_method_of_used_class = any((node.name in methods for cls, methods in class_methods.items() if cls in used_classes))
+            if node.name not in used_names and node.name != "__init__" and (not is_method_of_used_class):
                 unused_nodes.append(node)
             else:
                 used_nodes.append(node)
-        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
-            assigned_names = extract_assigned_names(node) if isinstance(node, (ast.Assign, ast.AnnAssign)) else set()
-            if not assigned_names or all(name not in used_names and name not in used_classes for name in assigned_names):
+        elif isinstance(node, ast.Assign):
+            assigned_names = set()
+            for target in node.targets:
+                assigned_names.update(extract_assigned_names(target))
+            if not assigned_names or all((name not in used_names and name not in used_classes for name in assigned_names)):
+                unused_nodes.append(node)
+            else:
+                used_nodes.append(node)
+        elif isinstance(node, ast.AnnAssign):
+            assigned_names = extract_assigned_names(node.target)
+            if not assigned_names or all((name not in used_names and name not in used_classes for name in assigned_names)):
                 unused_nodes.append(node)
             else:
                 used_nodes.append(node)
         else:
-            # You might choose to handle other node types here if needed
             used_nodes.append(node)
-
-    return unused_nodes, used_nodes
+    return (unused_nodes, used_nodes)
 
 
 def get_unused_code_nodes(
     content: str, imported_names: Set[str], file_path: Path, programatically_imports: Dict[Path, Set[str]], alias_mapping: Dict[str, str]
 ) -> Tuple[List[ast.AST], List[ast.AST]]:
-    if file_path in programatically_imports:
-        return [], []
 
     tree = ast.parse(content)
     _, used_names, used_classes, class_methods = collect_defined_and_used_names(tree, imported_names, alias_mapping)
-    unused_nodes, used_nodes = find_unused_code_nodes(tree, used_names, used_classes, class_methods)
+    unused_nodes, used_nodes = find_unused_code_nodes(tree, used_names, used_classes, class_methods, file_path, programatically_imports)
 
     return unused_nodes, used_nodes
 
