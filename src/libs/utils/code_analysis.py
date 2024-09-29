@@ -220,22 +220,28 @@ def find_unused_code_nodes(
             if node.decorator_list:
                 used_nodes.append(node)
                 continue
-            is_method_of_used_class = any(node.name in methods for cls, methods in class_methods.items() if cls in used_classes)
-            if node.name not in used_names and node.name != "__init__" and not is_method_of_used_class:
+            is_method_of_used_class = any((node.name in methods for cls, methods in class_methods.items() if cls in used_classes))
+            if node.name not in used_names and node.name != "__init__" and (not is_method_of_used_class):
                 unused_nodes.append(node)
             else:
                 used_nodes.append(node)
-        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
-            assigned_names = extract_assigned_names(node) if isinstance(node, (ast.Assign, ast.AnnAssign)) else set()
-            if not assigned_names or all(name not in used_names and name not in used_classes for name in assigned_names):
+        elif isinstance(node, ast.Assign):
+            assigned_names = set()
+            for target in node.targets:
+                assigned_names.update(extract_assigned_names(target))
+            if not assigned_names or all((name not in used_names and name not in used_classes for name in assigned_names)):
+                unused_nodes.append(node)
+            else:
+                used_nodes.append(node)
+        elif isinstance(node, ast.AnnAssign):
+            assigned_names = extract_assigned_names(node.target)
+            if not assigned_names or all((name not in used_names and name not in used_classes for name in assigned_names)):
                 unused_nodes.append(node)
             else:
                 used_nodes.append(node)
         else:
-            # You might choose to handle other node types here if needed
             used_nodes.append(node)
-
-    return unused_nodes, used_nodes
+    return (unused_nodes, used_nodes)
 
 
 def get_unused_code_nodes(
