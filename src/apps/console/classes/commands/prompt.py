@@ -6,8 +6,8 @@ from typing import Set, List, Any, Dict, Tuple
 from src.apps.console.classes.commands.base import BaseCommand
 from src.libs.helpers.console import get_user_input
 from src.libs.utils.string import wrap_text, remove_non_printable_characters
-from src.libs.utils.constants import CODE_CHANGES, ENTIRE_FILE
-from src.libs.utils.prompting import create_dashed_filename_marker, update_content_dashed_marker
+from src.libs.utils.constants import CODE_CHANGES, ENTIRE_FILE, DASHED_MARKERS_EXPLANATION
+from src.libs.utils.prompting import create_dashed_filename_marker, create_dashed_filename_end_marker, update_content_dashed_marker
 from src.libs.utils.file_system import (
     copy_to_clipboard,
     get_gitignore_patters_list,
@@ -85,6 +85,8 @@ class PromptConstructorCommand(BaseCommand):
                 else:
                     self.process_file_used_code_only(start_file, log_file)
 
+                write_log_file(log_file, f"\n{wrap_text(DASHED_MARKERS_EXPLANATION)}")
+
                 if closing_message:
                     write_log_file(log_file, f"\n{wrap_text(closing_message)}")
 
@@ -105,6 +107,8 @@ class PromptConstructorCommand(BaseCommand):
                     write_log_file(log_file, f"{wrap_text(starting_message)}\n\n")
 
                 self.process_multiple_folders(folders, log_file)
+
+                write_log_file(log_file, f"\n{wrap_text(DASHED_MARKERS_EXPLANATION)}")
 
                 if closing_message:
                     write_log_file(log_file, f"\n{wrap_text(closing_message)}")
@@ -160,6 +164,7 @@ class PromptConstructorCommand(BaseCommand):
 
         write_log_file(log_file, create_dashed_filename_marker(file_path, self.project_root))
         write_log_file(log_file, content)
+        write_log_file(log_file, create_dashed_filename_end_marker(file_path, self.project_root))
         write_log_file(log_file, "\n\n")
 
     def process_file(self, file_path: Path, log_file) -> None:
@@ -186,6 +191,7 @@ class PromptConstructorCommand(BaseCommand):
 
         write_log_file(log_file, create_dashed_filename_marker(file_path, self.project_root))
         write_log_file(log_file, content)
+        write_log_file(log_file, create_dashed_filename_end_marker(file_path, self.project_root))
         write_log_file(log_file, "\n\n")
 
         imports, programatically_imports, alias_mapping = self.get_local_imports(file_path)
@@ -258,7 +264,8 @@ class PromptConstructorCommand(BaseCommand):
 
             log_file_content: str = read_log_file(log_file)
             file_marker: str = create_dashed_filename_marker(import_path, self.project_root, blank_lines=False)
-            updated_content: str = update_content_dashed_marker(log_file_content, file_marker, code)
+            ending_marker: str = create_dashed_filename_end_marker(import_path, self.project_root, blank_lines=False)
+            updated_content: str = update_content_dashed_marker(log_file_content, file_marker, code, ending_marker)
             write_log_file_from_start(log_file, updated_content)
 
         if import_path not in self.processed_files:

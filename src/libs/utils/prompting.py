@@ -25,12 +25,21 @@ def find_next_dashed_marker_position_in_content(content: str, file_marker: str) 
 
 
 def create_dashed_filename_marker(file_path: Path, project_root: Path, blank_lines=True) -> str:
-    relative_path = file_path.relative_to(project_root)
+    relative_path: Path = file_path.relative_to(project_root)
 
     if blank_lines:
         return f"--- Filename {relative_path} ---\n\n"
 
     return f"--- Filename {relative_path} ---"
+
+
+def create_dashed_filename_end_marker(file_path: Path, project_root: Path, blank_lines=True) -> str:
+    relative_path: Path = file_path.relative_to(project_root)
+
+    if blank_lines:
+        return f"\n\n--- End of Filename {relative_path} ---\n"
+
+    return f"--- End of Filename {relative_path} ---"
 
 
 def add_content_end_dashed_file_marker(content: str, next_marker_position: str, new_content: str) -> str:
@@ -41,14 +50,14 @@ def add_content_to_end(content: str, file_marker: str, new_content: str) -> str:
     return content.rstrip() + f"\n\n{file_marker}\n\n{new_content}\n\n"
 
 
-def update_content_dashed_marker(content: str, file_marker: str, new_content: str) -> str:
+def update_content_dashed_marker(content: str, file_marker: str, new_content: str, ending_marker: str) -> str:
     if file_marker in content:
-        pattern = re.compile(re.escape(file_marker) + r"\n(.*?)(?=(\n--- Filename|\Z))", re.DOTALL)
+        pattern = re.compile(re.escape(file_marker) + r"\n(.*?)(?=(" + re.escape(ending_marker) + r"|\n--- Filename|\Z))", re.DOTALL)
         match = pattern.search(content)
         if match:
             existing_content = match.group(1).rstrip()
             combined_content = existing_content + "\n\n" + new_content
             content = pattern.sub(f"{file_marker}\n\n{combined_content}\n\n", content)
     else:
-        content += f"\n\n{file_marker}\n\n{new_content}\n"
+        content += f"\n\n{file_marker}\n\n{new_content}\n\n{ending_marker}\n"
     return content
