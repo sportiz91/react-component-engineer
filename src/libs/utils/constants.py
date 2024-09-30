@@ -237,3 +237,16 @@ analize your own conclusion and improve it.
 """
 
 CLAUDE_CONTEXT_WINDOW: int = 200000
+
+DASHED_MARKERS_EXPLANATION = """
+The markers --- Filename path/to/file.py --- and --- End of Filename path/to/file.py --- 
+indicate the start and end of the full content of the specified file. 
+
+For example:
+
+<example>
+  --- Filename src/main.py ---
+  print('Hello, World!')
+  --- End of Filename src/main.py ---
+</example>
+"""

@@ -6,7 +6,7 @@ from typing import Set, List, Any, Dict, Tuple
 from src.apps.console.classes.commands.base import BaseCommand
 from src.libs.helpers.console import get_user_input
 from src.libs.utils.string import wrap_text, remove_non_printable_characters
-from src.libs.utils.constants import CODE_CHANGES, ENTIRE_FILE
+from src.libs.utils.constants import CODE_CHANGES, ENTIRE_FILE, DASHED_MARKERS_EXPLANATION
 from src.libs.utils.prompting import create_dashed_filename_marker, create_dashed_filename_end_marker, update_content_dashed_marker
 from src.libs.utils.file_system import (
     copy_to_clipboard,
@@ -85,6 +85,8 @@ class PromptConstructorCommand(BaseCommand):
                 else:
                     self.process_file_used_code_only(start_file, log_file)
 
+                write_log_file(log_file, f"\n{wrap_text(DASHED_MARKERS_EXPLANATION)}")
+
                 if closing_message:
                     write_log_file(log_file, f"\n{wrap_text(closing_message)}")
 
@@ -105,6 +107,8 @@ class PromptConstructorCommand(BaseCommand):
                     write_log_file(log_file, f"{wrap_text(starting_message)}\n\n")
 
                 self.process_multiple_folders(folders, log_file)
+
+                write_log_file(log_file, f"\n{wrap_text(DASHED_MARKERS_EXPLANATION)}")
 
                 if closing_message:
                     write_log_file(log_file, f"\n{wrap_text(closing_message)}")
