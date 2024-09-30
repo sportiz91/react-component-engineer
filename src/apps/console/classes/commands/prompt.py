@@ -236,14 +236,25 @@ class PromptConstructorCommand(BaseCommand):
                 continue
 
         if new_nodes:
-            code_snippets: list = []
+            import_snippets: List[ast.AST] = []
+            non_import_snippets: List[ast.AST] = []
             for node in new_nodes:
                 source_segment: str | None = get_node_source_code_with_decorators(content, node)
-                if source_segment is not None:
-                    code_snippets.append(source_segment)
-                    continue
-                code_snippets.append(ast.unparse(node))
-            code: str = "\n\n".join(code_snippets)
+                if source_segment is None:
+                    source_segment = ast.unparse(node)
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    import_snippets.append(source_segment)
+                else:
+                    non_import_snippets.append(source_segment)
+
+            code_parts = []
+            if import_snippets:
+                code_parts.append("\n".join(import_snippets))
+                code_parts.append("")
+            if non_import_snippets:
+                code_parts.append("\n\n".join(non_import_snippets))
+
+            code = "\n".join(code_parts)
 
             log_file_content: str = read_log_file(log_file)
             file_marker: str = create_dashed_filename_marker(import_path, self.project_root, blank_lines=False)
