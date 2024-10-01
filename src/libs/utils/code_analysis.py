@@ -3,6 +3,7 @@ import ast
 from typing import Optional, List, Set, Dict, Tuple
 
 from src.libs.utils.file_system import should_ignore_file, is_path_directory, get_files_match_pattern
+from src.libs.services.logger.logger import log
 
 
 def remove_blank_lines_from_code_lines(lines: List[str]) -> str:
@@ -131,50 +132,90 @@ def get_local_imports(
     return imports, programatically_imports, alias_mapping
 
 
-def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alias_mapping: Dict[str, str]) -> Tuple[Set[str], Set[str], Set[str], Dict[str, List[str]]]:
+# @TODO: delete should_log logic
+def collect_defined_and_used_names(
+    tree: ast.AST, imported_names: Set[str], alias_mapping: Dict[str, str], should_log
+) -> Tuple[Set[str], Set[str], Set[str], Dict[str, List[str]]]:
+
     class NameCollector(ast.NodeVisitor):
+        def __init__(self):
+            self.defined_names = set()
+            self.used_names = set(imported_names)
+            self.used_classes = set()
+            self.class_methods = {}
+            self.current_function_is_used_stack = [True]
+
         def visit_Name(self, node):
             name = node.id
             if name in alias_mapping:
-                name: str = alias_mapping[name]
+                name = alias_mapping[name]
             if isinstance(node.ctx, ast.Store):
-                defined_names.add(name)
+                self.defined_names.add(name)
             elif isinstance(node.ctx, ast.Load) and name not in __builtins__:
-                used_names.add(name)
-                if name in defined_names:
-                    used_classes.add(name)
+                if self.current_function_is_used_stack[-1]:
+                    self.used_names.add(name)
+                    if name in self.defined_names:
+                        self.used_classes.add(name)
             self.generic_visit(node)
 
         def visit_ClassDef(self, node):
-            defined_names.add(node.name)
-            class_methods[node.name] = [m.name for m in node.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))]
+            self.defined_names.add(node.name)
+            self.class_methods[node.name] = [m.name for m in node.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))]
             if node.name in imported_names:
-                used_classes.add(node.name)
-            self.generic_visit(node)
+                self.used_classes.add(node.name)
+                self.current_function_is_used_stack.append(True)
+                self.generic_visit(node)
+                self.current_function_is_used_stack.pop()
+            else:
+                pass
+
+        def visit_FunctionDef(self, node):
+            self.defined_names.add(node.name)
+            if node.name in self.used_names:
+                self.current_function_is_used_stack.append(True)
+                self.generic_visit(node)
+                self.current_function_is_used_stack.pop()
+            else:
+                pass
+
+        def visit_AsyncFunctionDef(self, node):
+            self.visit_FunctionDef(node)
 
         def visit_Call(self, node):
-            func = node.func
-            if isinstance(func, ast.Name):
-                name = func.id
-                if name in alias_mapping:
-                    name: str = alias_mapping[name]
-                used_names.add(name)
-            elif isinstance(func, ast.Attribute):
-                pass
+            if self.current_function_is_used_stack[-1]:
+                func = node.func
+                if isinstance(func, ast.Name):
+                    name = func.id
+                    if name in alias_mapping:
+                        name = alias_mapping[name]
+                    self.used_names.add(name)
             self.generic_visit(node)
 
-    defined_names: Set[str] = set()
-    used_names: Set[str] = set(imported_names)
-    used_classes: Set[str] = set()
-    class_methods: Dict[str, List[str]] = {}
+    collector = NameCollector()
+    collector.visit(tree)
 
-    NameCollector().visit(tree)
+    # Include methods of used classes
+    for class_name in collector.used_classes:
+        if class_name in collector.class_methods:
+            collector.used_names.update(collector.class_methods[class_name])
 
-    for class_name in used_classes:
-        if class_name in class_methods:
-            used_names.update(class_methods[class_name])
+    # Log for debugging if needed
+    if should_log:
+        log("defined_names")
+        log(collector.defined_names)
+        log("used_names")
+        log(collector.used_names)
+        log("used_classes")
+        log(collector.used_classes)
+        log("class_methods")
+        log(collector.class_methods)
 
-    return defined_names, used_names, used_classes, class_methods
+    return (
+        collector.defined_names,
+        collector.used_names,
+        collector.used_classes,
+        collector.class_methods,
+    )
 
 
 def extract_assigned_names(node):
@@ -200,8 +241,9 @@ def extract_assigned_names(node):
     return assigned_names
 
 
+# @TODO: delete should_log logic
 def find_unused_code_nodes(
-    tree: ast.AST, used_names: Set[str], used_classes: Set[str], class_methods: Dict[str, List[str]], file_path: Path, programatically_imports: Dict[Path, Set[str]]
+    tree: ast.AST, used_names: Set[str], used_classes: Set[str], class_methods: Dict[str, List[str]], file_path: Path, programatically_imports: Dict[Path, Set[str]], should_log
 ) -> Tuple[List[ast.AST], List[ast.AST]]:
     unused_nodes: List[ast.AST] = []
     used_nodes: List[ast.AST] = []
@@ -209,6 +251,12 @@ def find_unused_code_nodes(
     is_file_path_in_programatically_imports: bool = file_path in programatically_imports
 
     for node in tree.body:
+
+        # @TODO: delete should_log logic
+        if should_log:
+            log("node")
+            log(ast.dump(node))
+
         if is_file_path_in_programatically_imports:
             used_nodes.append(node)
             continue
@@ -251,8 +299,14 @@ def get_unused_code_nodes(
     if tree is None:
         tree = ast.parse(content)
 
-    _, used_names, used_classes, class_methods = collect_defined_and_used_names(tree, imported_names, alias_mapping)
-    unused_nodes, used_nodes = find_unused_code_nodes(tree, used_names, used_classes, class_methods, file_path, programatically_imports)
+    # @TODO: delete should_log logic
+    should_log: bool = False
+    if file_path == Path("/home/lasantoneta/react-component-engineer/src/libs/utils/file_system.py"):
+        should_log = True
+
+    # @TODO: delete should_log logic
+    _, used_names, used_classes, class_methods = collect_defined_and_used_names(tree, imported_names, alias_mapping, should_log)
+    unused_nodes, used_nodes = find_unused_code_nodes(tree, used_names, used_classes, class_methods, file_path, programatically_imports, should_log)
 
     return (unused_nodes, used_nodes)
 

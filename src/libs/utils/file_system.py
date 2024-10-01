@@ -36,9 +36,7 @@ def is_text_file_mimetype_or_allowed_file(file_path: Path, allowed_files: List[s
     return False
 
 
-def is_text_file_mimetype(
-    file_path: Path,
-) -> bool:
+def is_text_file_mimetype(file_path: Path) -> bool:
     mime_type, _ = mimetypes.guess_type(file_path)
 
     if mime_type is None or not mime_type.startswith("text"):
