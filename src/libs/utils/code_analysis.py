@@ -189,6 +189,11 @@ def collect_defined_and_used_names(
                     if name in alias_mapping:
                         name = alias_mapping[name]
                     self.used_names.add(name)
+                elif isinstance(func, ast.Attribute):
+                    name = func.attr
+                    if name in alias_mapping:
+                        name = alias_mapping[name]
+                    self.used_names.add(name)
             self.generic_visit(node)
 
     collector = NameCollector()
@@ -301,7 +306,7 @@ def get_unused_code_nodes(
 
     # @TODO: delete should_log logic
     should_log: bool = False
-    if file_path == Path("/home/lasantoneta/react-component-engineer/src/libs/utils/file_system.py"):
+    if file_path == Path("/home/lasantoneta/react-component-engineer/src/libs/utils/code_analysis.py"):
         should_log = True
 
     # @TODO: delete should_log logic
