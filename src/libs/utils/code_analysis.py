@@ -133,122 +133,109 @@ def get_local_imports(
 
 
 # @TODO: delete should_log logic
-def collect_defined_and_used_names(
-    tree: ast.AST, imported_names: Set[str], alias_mapping: Dict[str, str], should_log
-) -> Tuple[Set[str], Set[str], Set[str], Dict[str, List[str]]]:
+def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alias_mapping: Dict[str, str], should_log: bool) -> Tuple[Set[str], Set[str]]:
 
-    class NameCollector(ast.NodeVisitor):
+    class DefinitionCollector(ast.NodeVisitor):
         def __init__(self):
             self.defined_names = set()
-            self.used_names = set(imported_names)
-            self.used_classes = set()
-            self.class_methods = {}
-            self.current_function_is_used_stack = [True]
 
-        def visit_Name(self, node):
-            name = node.id
-            if name in alias_mapping:
-                name = alias_mapping[name]
-            if isinstance(node.ctx, ast.Store):
-                self.defined_names.add(name)
-            elif isinstance(node.ctx, ast.Load) and name not in __builtins__:
-                if self.current_function_is_used_stack[-1]:
-                    self.used_names.add(name)
-                    if name in self.defined_names:
-                        self.used_classes.add(name)
+        def visit_FunctionDef(self, node):
+            self.defined_names.add(node.name)
             self.generic_visit(node)
 
         def visit_ClassDef(self, node):
             self.defined_names.add(node.name)
-            self.class_methods[node.name] = [m.name for m in node.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))]
-            if node.name in imported_names:
-                self.used_classes.add(node.name)
-                self.current_function_is_used_stack.append(True)
-                self.generic_visit(node)
-                self.current_function_is_used_stack.pop()
-            else:
-                pass
-
-        def visit_FunctionDef(self, node):
-            self.defined_names.add(node.name)
-            if node.name in self.used_names:
-                self.current_function_is_used_stack.append(True)
-                self.generic_visit(node)
-                self.current_function_is_used_stack.pop()
-            else:
-                pass
-
-        def visit_AsyncFunctionDef(self, node):
-            self.visit_FunctionDef(node)
-
-        def visit_Call(self, node):
-            if self.current_function_is_used_stack[-1]:
-                func = node.func
-                if isinstance(func, ast.Name):
-                    name = func.id
-                    if name in alias_mapping:
-                        name = alias_mapping[name]
-                    self.used_names.add(name)
-                elif isinstance(func, ast.Attribute):
-                    name = func.attr
-                    if name in alias_mapping:
-                        name = alias_mapping[name]
-                    self.used_names.add(name)
             self.generic_visit(node)
 
-    collector = NameCollector()
-    collector.visit(tree)
+        def visit_Assign(self, node):
+            for target in node.targets:
+                self.defined_names.update(extract_assigned_names(target))
+            self.generic_visit(node)
 
-    # Include methods of used classes
-    for class_name in collector.used_classes:
-        if class_name in collector.class_methods:
-            collector.used_names.update(collector.class_methods[class_name])
+        def visit_AnnAssign(self, node):
+            self.defined_names.update(extract_assigned_names(node.target))
+            self.generic_visit(node)
 
-    # Log for debugging if needed
-    if should_log:
-        log("defined_names")
-        log(collector.defined_names)
-        log("used_names")
-        log(collector.used_names)
-        log("used_classes")
-        log(collector.used_classes)
-        log("class_methods")
-        log(collector.class_methods)
+    class UsageCollector(ast.NodeVisitor):
+        def __init__(self):
+            self.used_names = set()
+            self.alias_mapping = {}
 
-    return (
-        collector.defined_names,
-        collector.used_names,
-        collector.used_classes,
-        collector.class_methods,
-    )
+        def visit_Name(self, node):
+            if isinstance(node.ctx, ast.Load):
+                name = node.id
+                if name in self.alias_mapping:
+                    name = self.alias_mapping[name]
+                self.used_names.add(name)
+            self.generic_visit(node)
+
+        def visit_Call(self, node):
+            func = node.func
+            if isinstance(func, ast.Name):
+                name = func.id
+                if name in self.alias_mapping:
+                    name = self.alias_mapping[name]
+                self.used_names.add(name)
+            elif isinstance(func, ast.Attribute):
+                name = func.attr
+                if name in self.alias_mapping:
+                    name = self.alias_mapping[name]
+                self.used_names.add(name)
+            self.generic_visit(node)
+
+        def visit_Import(self, node):
+            for alias in node.names:
+                imported_name = alias.name.split(".")[0]
+                asname = alias.asname or imported_name
+                self.alias_mapping[asname] = imported_name
+            self.generic_visit(node)
+
+        def visit_ImportFrom(self, node):
+            module = node.module
+            for alias in node.names:
+                imported_name = alias.name
+                asname = alias.asname or imported_name
+                full_name = f"{module}.{imported_name}" if module else imported_name
+                self.alias_mapping[asname] = full_name
+            self.generic_visit(node)
+
+    def_collector = DefinitionCollector()
+    def_collector.visit(tree)
+    defined_names = def_collector.defined_names
+
+    usage_collector = UsageCollector()
+    usage_collector.alias_mapping = alias_mapping
+    usage_collector.used_names.update(imported_names)
+    usage_collector.visit(tree)
+    used_names = usage_collector.used_names
+
+    return defined_names, used_names
 
 
-def extract_assigned_names(node):
-    assigned_names = set()
+def extract_assigned_names(node: ast.AST) -> Set[str]:
+    assigned_names: Set[str] = set()
 
-    if isinstance(node, ast.Name):
+    if isinstance(node, list):
+        for n in node:
+            assigned_names.update(extract_assigned_names(n))
+    elif isinstance(node, ast.Name):
         assigned_names.add(node.id)
-    elif isinstance(node, ast.Attribute):
-        # For attributes like self.x = value
-        # You may decide to use node.attr or node.value.id
-        # Here, we'll use node.attr (e.g., 'x' in 'self.x')
-        assigned_names.add(node.attr)
     elif isinstance(node, (ast.Tuple, ast.List)):
         for elt in node.elts:
             assigned_names.update(extract_assigned_names(elt))
+    elif isinstance(node, ast.Attribute):
+        assigned_names.add(node.attr)
     elif isinstance(node, ast.Subscript):
-        # Subscript assignments like a[0] = value
-        # You might choose to handle this differently
-        pass  # Ignoring subscripts for now
+        pass
     elif isinstance(node, ast.Starred):
         assigned_names.update(extract_assigned_names(node.value))
-    # Add more cases if needed
+
     return assigned_names
 
 
 # @TODO: delete should_log logic
 def find_unused_code_nodes(
-    tree: ast.AST, used_names: Set[str], used_classes: Set[str], class_methods: Dict[str, List[str]], file_path: Path, programatically_imports: Dict[Path, Set[str]], should_log
+    tree: ast.AST, used_names: Set[str], defined_names: Set[str], file_path: Path, programatically_imports: Dict[Path, Set[str]], should_log: bool
 ) -> Tuple[List[ast.AST], List[ast.AST]]:
     unused_nodes: List[ast.AST] = []
     used_nodes: List[ast.AST] = []
@@ -256,8 +243,6 @@ def find_unused_code_nodes(
     is_file_path_in_programatically_imports: bool = file_path in programatically_imports
 
     for node in tree.body:
-
-        # @TODO: delete should_log logic
         if should_log:
             log("node")
             log(ast.dump(node))
@@ -265,37 +250,24 @@ def find_unused_code_nodes(
         if is_file_path_in_programatically_imports:
             used_nodes.append(node)
             continue
-        if isinstance(node, ast.ClassDef):
-            if node.name not in used_names and node.name not in used_classes:
-                unused_nodes.append(node)
+
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name in used_names:
+                used_nodes.append(node)
             else:
-                used_nodes.append(node)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if node.decorator_list:
-                used_nodes.append(node)
-                continue
-            is_method_of_used_class = any((node.name in methods for cls, methods in class_methods.items() if cls in used_classes))
-            if node.name not in used_names and node.name != "__init__" and (not is_method_of_used_class):
                 unused_nodes.append(node)
-            else:
-                used_nodes.append(node)
-        elif isinstance(node, ast.Assign):
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             assigned_names = set()
-            for target in node.targets:
+            for target in targets:
                 assigned_names.update(extract_assigned_names(target))
-            if not assigned_names or all((name not in used_names and name not in used_classes for name in assigned_names)):
-                unused_nodes.append(node)
-            else:
+            if assigned_names & used_names:
                 used_nodes.append(node)
-        elif isinstance(node, ast.AnnAssign):
-            assigned_names = extract_assigned_names(node.target)
-            if not assigned_names or all((name not in used_names and name not in used_classes for name in assigned_names)):
-                unused_nodes.append(node)
             else:
-                used_nodes.append(node)
+                unused_nodes.append(node)
         else:
             used_nodes.append(node)
-    return (unused_nodes, used_nodes)
+    return unused_nodes, used_nodes
 
 
 def get_unused_code_nodes(
@@ -304,16 +276,18 @@ def get_unused_code_nodes(
     if tree is None:
         tree = ast.parse(content)
 
-    # @TODO: delete should_log logic
+    # Determine whether to log based on the file path or other criteria
     should_log: bool = False
-    if file_path == Path("/home/lasantoneta/react-component-engineer/src/libs/utils/code_analysis.py"):
+    if file_path == Path("/path/to/specific/file.py"):
         should_log = True
 
-    # @TODO: delete should_log logic
-    _, used_names, used_classes, class_methods = collect_defined_and_used_names(tree, imported_names, alias_mapping, should_log)
-    unused_nodes, used_nodes = find_unused_code_nodes(tree, used_names, used_classes, class_methods, file_path, programatically_imports, should_log)
+    # Collect definitions and usages
+    defined_names, used_names = collect_defined_and_used_names(tree, imported_names, alias_mapping, should_log)
 
-    return (unused_nodes, used_nodes)
+    # Determine unused and used nodes
+    unused_nodes, used_nodes = find_unused_code_nodes(tree, used_names, defined_names, file_path, programatically_imports, should_log)
+
+    return unused_nodes, used_nodes
 
 
 def filter_lines(lines: List[str], lines_to_remove: Set[int]) -> List[str]:
