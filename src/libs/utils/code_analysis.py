@@ -234,6 +234,7 @@ def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alia
         def __init__(self):
             self.call_graph: Dict[str, Set[str]] = {}
             self.function_stack: List[str] = []
+            self.importted_names_graph: Dict[str, Set[str]] = {}
 
         def visit_Module(self, node: ast.Module):
             self.function_stack.append("__module__")
@@ -305,6 +306,8 @@ def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alia
         log(call_graph)
         log("entry_points")
         log(entry_points)
+        log("imported_names")
+        log(imported_names)
 
     return defined_names, used_names
 
@@ -375,7 +378,7 @@ def get_unused_code_nodes(
 
     # Determine whether to log based on the file path or other criteria
     should_log: bool = False
-    if file_path.name == "code_analysis.py":
+    if file_path.name == "file_system.py":
         should_log = True
 
     # Collect definitions and usages
