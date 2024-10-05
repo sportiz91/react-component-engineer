@@ -228,12 +228,33 @@ def find_reachable_functions(call_graph: Dict[str, Set[str]], entry_points: Set[
     return reachable_functions
 
 
+def build_imported_names_graph(call_graph: Dict[str, Set[str]], imported_names: Set[str], defined_names: Set[str]) -> Dict[str, Set[str]]:
+    imported_names_graph = {}
+
+    def depth_first_seach(func: str, visited: Set[str]) -> Set[str]:
+        if func not in call_graph or func in visited:
+            return set()
+        visited.add(func)
+        called_funcs = call_graph[func] & defined_names
+        result = set(called_funcs)
+        for called_func in called_funcs:
+            result.update(depth_first_seach(called_func, visited))
+        return result
+
+    for func in imported_names:
+        visited = set()
+        imported_names_graph[func] = depth_first_seach(func, visited)
+
+    return imported_names_graph
+
+
 # @TODO: delete should_log logic
 def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alias_mapping: Dict[str, str], should_log: bool) -> Tuple[Set[str], Set[str]]:
     class CallGraphBuilder(ast.NodeVisitor):
         def __init__(self):
             self.call_graph: Dict[str, Set[str]] = {}
             self.function_stack: List[str] = []
+            # @TODO: complete with an importted_names_graph.
             self.importted_names_graph: Dict[str, Set[str]] = {}
 
         def visit_Module(self, node: ast.Module):
@@ -268,6 +289,8 @@ def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alia
     call_graph_builder = CallGraphBuilder()
     call_graph_builder.visit(tree)
     call_graph = call_graph_builder.call_graph
+
+    imported_names_graph = build_imported_names_graph(call_graph, imported_names, defined_names)
 
     # Find Entry Points (functions called at the module level)
     entry_points: Set[str] = set()
@@ -308,6 +331,8 @@ def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alia
         log(entry_points)
         log("imported_names")
         log(imported_names)
+        log("imported_names_graph")
+        log(imported_names_graph)
 
     return defined_names, used_names
 
@@ -378,7 +403,7 @@ def get_unused_code_nodes(
 
     # Determine whether to log based on the file path or other criteria
     should_log: bool = False
-    if file_path.name == "file_system.py":
+    if file_path.name == "code_analysis.py":
         should_log = True
 
     # Collect definitions and usages
