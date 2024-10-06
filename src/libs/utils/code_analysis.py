@@ -167,62 +167,125 @@ def collect_used_names(tree: ast.AST, reachable_functions: Set[str], alias_mappi
 
     class UsageCollector(ast.NodeVisitor):
         def __init__(self):
-            self.in_reachable_function = 0
-
-        def visit_Module(self, node: ast.Module):
-            self.in_reachable_function += 1
-            self.generic_visit(node)
-            self.in_reachable_function -= 1
+            self.current_function = None
 
         def visit_FunctionDef(self, node: ast.FunctionDef):
             if node.name in reachable_functions:
-                self.in_reachable_function += 1
+                self.current_function = node.name
                 self.generic_visit(node)
-                self.in_reachable_function -= 1
-            else:
-                self.generic_visit(node)
+                self.current_function = None
 
         def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
             self.visit_FunctionDef(node)
 
+        def visit_Call(self, node: ast.Call):
+            if self.current_function:
+                func = node.func
+                if isinstance(func, ast.Name):
+                    name = func.id
+                elif isinstance(func, ast.Attribute):
+                    name = func.attr
+                else:
+                    name = None
+
+                if name and name in alias_mapping:
+                    name = alias_mapping[name]
+
+                if name:
+                    used_names.add(name)
+            self.generic_visit(node)
+
         def visit_Name(self, node: ast.Name):
-            if self.in_reachable_function > 0 and isinstance(node.ctx, ast.Load):
+            if self.current_function and isinstance(node.ctx, ast.Load):
                 name = node.id
                 if name in alias_mapping:
                     name = alias_mapping[name]
                 used_names.add(name)
             self.generic_visit(node)
 
-        def visit_Call(self, node: ast.Call):
-            if self.in_reachable_function > 0:
-                func = node.func
-                if isinstance(func, ast.Name):
-                    name = func.id
-                    if name in alias_mapping:
+    class ModuleLevelUsageCollector(ast.NodeVisitor):
+        def __init__(self):
+            self.used_names = set()
+
+        def visit_Module(self, node):
+            for stmt in node.body:
+                self.visit(stmt)
+
+        def visit_Call(self, node):
+            func = node.func
+            if isinstance(func, ast.Name):
+                name = func.id
+            elif isinstance(func, ast.Attribute):
+                name = func.attr
+            else:
+                name = None
+
+            if name and name in alias_mapping:
+                name = alias_mapping[name]
+
+            if name:
+                self.used_names.add(name)
+
+        def visit_Name(self, node):
+            if isinstance(node.ctx, ast.Load):
+                name = node.id
+                if name in alias_mapping:
+                    name = alias_mapping[name]
+                self.used_names.add(name)
+
+        def visit_FunctionDef(self, node):
+            if node.name.startswith("_") and node.decorator_list:
+                self.used_names.add(node.name)
+
+        def visit_ClassDef(self, node):
+            pass
+
+        def visit_AsyncFunctionDef(self, node):
+            if node.name.startswith("_") and node.decorator_list:
+                self.used_names.add(node.name)
+
+        def visit_With(self, node):
+            for item in node.items:
+                context_expr = item.context_expr
+                if isinstance(context_expr, ast.Call):
+                    func = context_expr.func
+                    if isinstance(func, ast.Name):
+                        name = func.id
+                    elif isinstance(func, ast.Attribute):
+                        name = func.attr
+                    else:
+                        name = None
+
+                    if name and name in alias_mapping:
                         name = alias_mapping[name]
-                    used_names.add(name)
-                elif isinstance(func, ast.Attribute):
-                    name = func.attr
-                    if name in alias_mapping:
-                        name = alias_mapping[name]
-                    used_names.add(name)
-            self.generic_visit(node)
+
+                    if name:
+                        self.used_names.add(name)
+
+        def generic_visit(self, node):
+            pass
 
     usage_collector = UsageCollector()
     usage_collector.visit(tree)
+
+    module_level_usage_collector = ModuleLevelUsageCollector()
+    module_level_usage_collector.visit(tree)
+
+    used_names.update(module_level_usage_collector.used_names)
     used_names.update(imported_names)
+
     return used_names
 
 
-def find_reachable_functions(call_graph: Dict[str, Set[str]], entry_points: Set[str]) -> Set[str]:
+def find_reachable_functions(call_graph: Dict[str, Set[str]], entry_points: Set[str], defined_names: Set[str]) -> Set[str]:
     reachable_functions: Set[str] = set()
     stack = list(entry_points)
 
     while stack:
         function_name = stack.pop()
-        if function_name not in reachable_functions:
+        if function_name in defined_names and function_name not in reachable_functions:
             reachable_functions.add(function_name)
-            called_functions = call_graph.get(function_name, set())
+            called_functions = call_graph.get(function_name, set()) & defined_names
             stack.extend(called_functions)
 
     return reachable_functions
@@ -254,7 +317,6 @@ def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alia
         def __init__(self):
             self.call_graph: Dict[str, Set[str]] = {}
             self.function_stack: List[str] = []
-            # @TODO: complete with an importted_names_graph.
             self.importted_names_graph: Dict[str, Set[str]] = {}
 
         def visit_Module(self, node: ast.Module):
@@ -285,37 +347,107 @@ def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alia
                     self.call_graph[current_function].add(called_function)
             self.generic_visit(node)
 
+    class ModuleLevelCallCollector(ast.NodeVisitor):
+        def __init__(self):
+            self.module_level_calls = set()
+
+        def visit_Module(self, node):
+            for stmt in node.body:
+                self.visit(stmt)
+
+        def visit_Expr(self, node):
+            if isinstance(node.value, ast.Call):
+                func = node.value.func
+                if isinstance(func, ast.Name):
+                    func_name = func.id
+                elif isinstance(func, ast.Attribute):
+                    func_name = func.attr
+                else:
+                    func_name = None
+
+                if func_name and func_name in defined_names:
+                    self.module_level_calls.add(func_name)
+
+        def visit_Assign(self, node):
+            if isinstance(node.value, ast.Call):
+                func = node.value.func
+                if isinstance(func, ast.Name):
+                    func_name = func.id
+                elif isinstance(func, ast.Attribute):
+                    func_name = func.attr
+                else:
+                    func_name = None
+
+                if func_name and func_name in defined_names:
+                    self.module_level_calls.add(func_name)
+
+        def visit_FunctionDef(self, node):
+            pass
+
+        def visit_ClassDef(self, node):
+            pass
+
+        def visit_With(self, node):
+            if isinstance(node, ast.With):
+                for item in node.items:
+                    context_expr = item.context_expr
+                    if isinstance(context_expr, ast.Call):
+                        func = context_expr.func
+                        if isinstance(func, ast.Name):
+                            func_name = func.id
+                        elif isinstance(func, ast.Attribute):
+                            func_name = func.attr
+                        else:
+                            func_name = None
+
+                        if func_name and func_name in defined_names:
+                            self.module_level_calls.add(func_name)
+
+    class DecoratedUnderscoreFunctionCollector(ast.NodeVisitor):
+        def __init__(self):
+            self.decorated_underscore_functions = set()
+
+        def visit_Module(self, node):
+            for stmt in node.body:
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if stmt.name.startswith("_") and stmt.decorator_list:
+                        self.decorated_underscore_functions.add(stmt.name)
+
+        def visit_FunctionDef(self, node):
+            pass
+
+        def visit_AsyncFunctionDef(self, node):
+            pass
+
+        def visit_ClassDef(self, node):
+            pass
+
     defined_names = collect_defined_names(tree)
     call_graph_builder = CallGraphBuilder()
     call_graph_builder.visit(tree)
     call_graph = call_graph_builder.call_graph
 
-    imported_names_graph = build_imported_names_graph(call_graph, imported_names, defined_names)
+    # @TODO: is this needed ?
+    imported_names_graph: Dict[str, Set[str]] = build_imported_names_graph(call_graph, imported_names, defined_names)
 
-    # Find Entry Points (functions called at the module level)
-    entry_points: Set[str] = set()
+    reachable_from_imports = find_reachable_functions(call_graph, imported_names, defined_names)
 
-    entry_points.add("__module__")
+    module_level_calls = set()
 
-    class EntryPointCollector(ast.NodeVisitor):
-        def visit_Call(self, node: ast.Call):
-            func = node.func
-            if isinstance(func, ast.Name):
-                entry_points.add(func.id)
-            elif isinstance(func, ast.Attribute):
-                entry_points.add(func.attr)
-            self.generic_visit(node)
+    module_level_collector = ModuleLevelCallCollector()
+    module_level_collector.visit(tree)
+    module_level_calls = module_level_collector.module_level_calls
 
-    entry_point_collector = EntryPointCollector()
-    entry_point_collector.visit(tree)
+    reachable_from_module_level = find_reachable_functions(call_graph, module_level_calls, defined_names)
 
-    # Add imported functions as entry points
-    entry_points.update(imported_names)
+    reachable_functions = reachable_from_imports.union(reachable_from_module_level)
 
-    # Find Reachable Functions
-    reachable_functions = find_reachable_functions(call_graph, entry_points)
+    decorated_underscore_collector = DecoratedUnderscoreFunctionCollector()
+    decorated_underscore_collector.visit(tree)
+    decorated_underscore_functions = decorated_underscore_collector.decorated_underscore_functions
 
-    # Second Pass: Collect Usages from Reachable Functions
+    reachable_functions = reachable_functions.union(decorated_underscore_functions)
+
     used_names = collect_used_names(tree, reachable_functions, alias_mapping, imported_names)
 
     if should_log:
@@ -323,12 +455,16 @@ def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alia
         log(defined_names)
         log("used_names")
         log(used_names)
+        log("reachable_from_imports")
+        log(reachable_from_imports)
+        log("reachable_from_module_level")
+        log(reachable_from_module_level)
         log("reachable_functions")
         log(reachable_functions)
         log("call_graph")
         log(call_graph)
-        log("entry_points")
-        log(entry_points)
+        log("module_level_calls")
+        log(module_level_calls)
         log("imported_names")
         log(imported_names)
         log("imported_names_graph")
@@ -403,7 +539,7 @@ def get_unused_code_nodes(
 
     # Determine whether to log based on the file path or other criteria
     should_log: bool = False
-    if file_path.name == "code_analysis.py":
+    if file_path.name == "file_system.py":
         should_log = True
 
     # Collect definitions and usages
