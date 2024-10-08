@@ -3,6 +3,7 @@ import ast
 from typing import Optional, List, Set, Dict, Tuple
 
 from src.libs.utils.file_system import should_ignore_file, is_path_directory, get_files_match_pattern
+from src.libs.services.logger.logger import log
 
 
 def remove_blank_lines_from_code_lines(lines: List[str]) -> str:
@@ -131,77 +132,407 @@ def get_local_imports(
     return imports, programatically_imports, alias_mapping
 
 
-def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alias_mapping: Dict[str, str]) -> Tuple[Set[str], Set[str], Set[str], Dict[str, List[str]]]:
-    class NameCollector(ast.NodeVisitor):
-        def visit_Name(self, node):
-            name = node.id
-            if name in alias_mapping:
-                name: str = alias_mapping[name]
-            if isinstance(node.ctx, ast.Store):
-                defined_names.add(name)
-            elif isinstance(node.ctx, ast.Load) and name not in __builtins__:
-                used_names.add(name)
-                if name in defined_names:
-                    used_classes.add(name)
+def collect_defined_names(tree: ast.AST) -> Set[str]:
+    defined_names: Set[str] = set()
+
+    class DefinitionCollector(ast.NodeVisitor):
+        def __init__(self):
+            self.current_class = None
+
+        def visit_ClassDef(self, node: ast.ClassDef):
+            defined_names.add(node.name)
+            self.current_class = node.name
+            self.generic_visit(node)
+            self.current_class = None
+
+        def visit_FunctionDef(self, node: ast.FunctionDef):
+            if self.current_class:
+                function_name = f"{self.current_class}.{node.name}"
+            else:
+                function_name = node.name
+            defined_names.add(function_name)
             self.generic_visit(node)
 
-        def visit_ClassDef(self, node):
-            defined_names.add(node.name)
-            class_methods[node.name] = [m.name for m in node.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))]
-            if node.name in imported_names:
-                used_classes.add(node.name)
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+            self.visit_FunctionDef(node)
+
+        def visit_Assign(self, node: ast.Assign):
+            for target in node.targets:
+                defined_names.update(extract_assigned_names(target))
             self.generic_visit(node)
+
+        def visit_AnnAssign(self, node: ast.AnnAssign):
+            defined_names.update(extract_assigned_names(node.target))
+            self.generic_visit(node)
+
+    collector = DefinitionCollector()
+    collector.visit(tree)
+    return defined_names
+
+
+def collect_used_names(tree: ast.AST, reachable_functions: Set[str], alias_mapping: Dict[str, str], imported_names: Set[str]) -> Set[str]:
+    used_names: Set[str] = set()
+
+    class UsageCollector(ast.NodeVisitor):
+        def __init__(self):
+            self.current_function = None
+            self.current_class = None
+
+        def visit_ClassDef(self, node: ast.ClassDef):
+            if node.name in reachable_functions:
+                self.current_class = node.name
+                self.generic_visit(node)
+                self.current_class = None
+
+        def visit_FunctionDef(self, node: ast.FunctionDef):
+            if self.current_class:
+                function_name = f"{self.current_class}.{node.name}"
+            else:
+                function_name = node.name
+
+            if function_name in reachable_functions:
+                self.current_function = function_name
+                used_names.add(function_name)
+                self.generic_visit(node)
+                self.current_function = None
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+            self.visit_FunctionDef(node)
+
+        def visit_Call(self, node: ast.Call):
+            if self.current_function:
+                func = node.func
+                if isinstance(func, ast.Name):
+                    name = func.id
+                elif isinstance(func, ast.Attribute):
+                    if isinstance(func.value, ast.Name):
+                        name = f"{func.value.id}.{func.attr}"
+                    else:
+                        name = func.attr
+                else:
+                    name = None
+
+                if name and name in alias_mapping:
+                    name = alias_mapping[name]
+
+                if name:
+                    used_names.add(name)
+            self.generic_visit(node)
+
+        def visit_Name(self, node: ast.Name):
+            if self.current_function and isinstance(node.ctx, ast.Load):
+                name = node.id
+                if name in alias_mapping:
+                    name = alias_mapping[name]
+                used_names.add(name)
+            self.generic_visit(node)
+
+    class ModuleLevelUsageCollector(ast.NodeVisitor):
+        def __init__(self):
+            self.used_names = set()
+
+        def visit_Module(self, node):
+            for stmt in node.body:
+                self.visit(stmt)
 
         def visit_Call(self, node):
             func = node.func
             if isinstance(func, ast.Name):
                 name = func.id
-                if name in alias_mapping:
-                    name: str = alias_mapping[name]
-                used_names.add(name)
             elif isinstance(func, ast.Attribute):
-                pass
+                name = func.attr
+            else:
+                name = None
+
+            if name and name in alias_mapping:
+                name = alias_mapping[name]
+
+            if name:
+                self.used_names.add(name)
+
+        def visit_Name(self, node):
+            if isinstance(node.ctx, ast.Load):
+                name = node.id
+                if name in alias_mapping:
+                    name = alias_mapping[name]
+                self.used_names.add(name)
+
+        def visit_FunctionDef(self, node):
+            if node.name.startswith("_") and node.decorator_list:
+                self.used_names.add(node.name)
+
+        def visit_ClassDef(self, node):
+            pass
+
+        def visit_AsyncFunctionDef(self, node):
+            if node.name.startswith("_") and node.decorator_list:
+                self.used_names.add(node.name)
+
+        def visit_With(self, node):
+            for item in node.items:
+                context_expr = item.context_expr
+                if isinstance(context_expr, ast.Call):
+                    func = context_expr.func
+                    if isinstance(func, ast.Name):
+                        name = func.id
+                    elif isinstance(func, ast.Attribute):
+                        name = func.attr
+                    else:
+                        name = None
+
+                    if name and name in alias_mapping:
+                        name = alias_mapping[name]
+
+                    if name:
+                        self.used_names.add(name)
+
+        def generic_visit(self, node):
+            pass
+
+    usage_collector = UsageCollector()
+    usage_collector.visit(tree)
+
+    module_level_usage_collector = ModuleLevelUsageCollector()
+    module_level_usage_collector.visit(tree)
+
+    used_names.update(module_level_usage_collector.used_names)
+    used_names.update(imported_names)
+    used_names.update(reachable_functions)
+
+    return used_names
+
+
+def find_reachable_functions(call_graph: Dict[str, Set[str]], entry_points: Set[str], defined_names: Set[str]) -> Set[str]:
+    reachable_functions: Set[str] = set()
+    stack = list(entry_points)
+
+    while stack:
+        function_name = stack.pop()
+        if function_name in defined_names and function_name not in reachable_functions:
+            reachable_functions.add(function_name)
+            called_functions = call_graph.get(function_name, set()) & defined_names
+            stack.extend(called_functions)
+
+            for name in defined_names:
+                if name.startswith(f"{function_name}."):
+                    method_name = name
+                    if method_name not in reachable_functions:
+                        reachable_functions.add(method_name)
+                        stack.append(method_name)
+    return reachable_functions
+
+
+def build_imported_names_graph(call_graph: Dict[str, Set[str]], imported_names: Set[str], defined_names: Set[str]) -> Dict[str, Set[str]]:
+    imported_names_graph = {}
+
+    def depth_first_seach(func: str, visited: Set[str]) -> Set[str]:
+        if func not in call_graph or func in visited:
+            return set()
+        visited.add(func)
+        called_funcs = call_graph[func] & defined_names
+        result = set(called_funcs)
+        for called_func in called_funcs:
+            result.update(depth_first_seach(called_func, visited))
+        return result
+
+    for func in imported_names:
+        visited = set()
+        imported_names_graph[func] = depth_first_seach(func, visited)
+
+    return imported_names_graph
+
+
+def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alias_mapping: Dict[str, str], should_log: bool) -> Tuple[Set[str], Set[str]]:
+    class CallGraphBuilder(ast.NodeVisitor):
+        def __init__(self):
+            self.call_graph: Dict[str, Set[str]] = {}
+            self.function_stack: List[str] = []
+            self.current_class = None
+
+        def visit_ClassDef(self, node: ast.ClassDef):
+            self.current_class = node.name
+            self.generic_visit(node)
+            self.current_class = None
+
+        def visit_FunctionDef(self, node: ast.FunctionDef):
+            if self.current_class:
+                function_name = f"{self.current_class}.{node.name}"
+            else:
+                function_name = node.name
+            self.function_stack.append(function_name)
+            self.call_graph.setdefault(function_name, set())
+            self.generic_visit(node)
+            self.function_stack.pop()
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+            self.visit_FunctionDef(node)
+
+        def visit_Call(self, node: ast.Call):
+            if self.function_stack:
+                current_function = self.function_stack[-1]
+                func = node.func
+                if isinstance(func, ast.Name):
+                    called_function = func.id
+                elif isinstance(func, ast.Attribute):
+                    if isinstance(func.value, ast.Name):
+                        called_function = f"{func.value.id}.{func.attr}"
+                    else:
+                        called_function = func.attr
+                else:
+                    called_function = None
+
+                if called_function:
+                    self.call_graph[current_function].add(called_function)
             self.generic_visit(node)
 
-    defined_names: Set[str] = set()
-    used_names: Set[str] = set(imported_names)
-    used_classes: Set[str] = set()
-    class_methods: Dict[str, List[str]] = {}
+    class ModuleLevelCallCollector(ast.NodeVisitor):
+        def __init__(self):
+            self.module_level_calls = set()
 
-    NameCollector().visit(tree)
+        def visit_Module(self, node):
+            for stmt in node.body:
+                self.visit(stmt)
 
-    for class_name in used_classes:
-        if class_name in class_methods:
-            used_names.update(class_methods[class_name])
+        def visit_Expr(self, node):
+            if isinstance(node.value, ast.Call):
+                func = node.value.func
+                if isinstance(func, ast.Name):
+                    func_name = func.id
+                elif isinstance(func, ast.Attribute):
+                    func_name = func.attr
+                else:
+                    func_name = None
 
-    return defined_names, used_names, used_classes, class_methods
+                if func_name and func_name in defined_names:
+                    self.module_level_calls.add(func_name)
+
+        def visit_Assign(self, node):
+            if isinstance(node.value, ast.Call):
+                func = node.value.func
+                if isinstance(func, ast.Name):
+                    func_name = func.id
+                elif isinstance(func, ast.Attribute):
+                    func_name = func.attr
+                else:
+                    func_name = None
+
+                if func_name and func_name in defined_names:
+                    self.module_level_calls.add(func_name)
+
+        def visit_FunctionDef(self, node):
+            pass
+
+        def visit_ClassDef(self, node):
+            pass
+
+        def visit_With(self, node):
+            if isinstance(node, ast.With):
+                for item in node.items:
+                    context_expr = item.context_expr
+                    if isinstance(context_expr, ast.Call):
+                        func = context_expr.func
+                        if isinstance(func, ast.Name):
+                            func_name = func.id
+                        elif isinstance(func, ast.Attribute):
+                            func_name = func.attr
+                        else:
+                            func_name = None
+
+                        if func_name and func_name in defined_names:
+                            self.module_level_calls.add(func_name)
+
+    class DecoratedUnderscoreFunctionCollector(ast.NodeVisitor):
+        def __init__(self):
+            self.decorated_underscore_functions = set()
+
+        def visit_Module(self, node):
+            for stmt in node.body:
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if stmt.name.startswith("_") and stmt.decorator_list:
+                        self.decorated_underscore_functions.add(stmt.name)
+
+        def visit_FunctionDef(self, node):
+            pass
+
+        def visit_AsyncFunctionDef(self, node):
+            pass
+
+        def visit_ClassDef(self, node):
+            pass
+
+    defined_names = collect_defined_names(tree)
+    call_graph_builder = CallGraphBuilder()
+    call_graph_builder.visit(tree)
+    call_graph = call_graph_builder.call_graph
+
+    imported_names_graph: Dict[str, Set[str]] = build_imported_names_graph(call_graph, imported_names, defined_names)
+
+    reachable_from_imports = find_reachable_functions(call_graph, imported_names, defined_names)
+
+    module_level_calls = set()
+
+    module_level_collector = ModuleLevelCallCollector()
+    module_level_collector.visit(tree)
+    module_level_calls = module_level_collector.module_level_calls
+
+    reachable_from_module_level = find_reachable_functions(call_graph, module_level_calls, defined_names)
+
+    reachable_functions = reachable_from_imports.union(reachable_from_module_level)
+
+    decorated_underscore_collector = DecoratedUnderscoreFunctionCollector()
+    decorated_underscore_collector.visit(tree)
+    decorated_underscore_functions = decorated_underscore_collector.decorated_underscore_functions
+
+    reachable_functions = reachable_functions.union(decorated_underscore_functions)
+
+    used_names = collect_used_names(tree, reachable_functions, alias_mapping, imported_names)
+
+    if should_log:
+        log("defined_names")
+        log(defined_names)
+        log("used_names")
+        log(used_names)
+        log("reachable_from_imports")
+        log(reachable_from_imports)
+        log("reachable_from_module_level")
+        log(reachable_from_module_level)
+        log("reachable_functions")
+        log(reachable_functions)
+        log("call_graph")
+        log(call_graph)
+        log("module_level_calls")
+        log(module_level_calls)
+        log("imported_names")
+        log(imported_names)
+        log("imported_names_graph")
+        log(imported_names_graph)
+
+    return defined_names, used_names
 
 
-def extract_assigned_names(node):
-    assigned_names = set()
+def extract_assigned_names(node: ast.AST) -> Set[str]:
+    assigned_names: Set[str] = set()
 
-    if isinstance(node, ast.Name):
+    if isinstance(node, list):
+        for n in node:
+            assigned_names.update(extract_assigned_names(n))
+    elif isinstance(node, ast.Name):
         assigned_names.add(node.id)
-    elif isinstance(node, ast.Attribute):
-        # For attributes like self.x = value
-        # You may decide to use node.attr or node.value.id
-        # Here, we'll use node.attr (e.g., 'x' in 'self.x')
-        assigned_names.add(node.attr)
     elif isinstance(node, (ast.Tuple, ast.List)):
         for elt in node.elts:
             assigned_names.update(extract_assigned_names(elt))
+    elif isinstance(node, ast.Attribute):
+        assigned_names.add(node.attr)
     elif isinstance(node, ast.Subscript):
-        # Subscript assignments like a[0] = value
-        # You might choose to handle this differently
-        pass  # Ignoring subscripts for now
+        pass
     elif isinstance(node, ast.Starred):
         assigned_names.update(extract_assigned_names(node.value))
-    # Add more cases if needed
+
     return assigned_names
 
 
 def find_unused_code_nodes(
-    tree: ast.AST, used_names: Set[str], used_classes: Set[str], class_methods: Dict[str, List[str]], file_path: Path, programatically_imports: Dict[Path, Set[str]]
+    tree: ast.AST, used_names: Set[str], defined_names: Set[str], file_path: Path, programatically_imports: Dict[Path, Set[str]], should_log: bool
 ) -> Tuple[List[ast.AST], List[ast.AST]]:
     unused_nodes: List[ast.AST] = []
     used_nodes: List[ast.AST] = []
@@ -209,40 +540,31 @@ def find_unused_code_nodes(
     is_file_path_in_programatically_imports: bool = file_path in programatically_imports
 
     for node in tree.body:
+        if should_log:
+            log("node")
+            log(ast.dump(node))
+
         if is_file_path_in_programatically_imports:
             used_nodes.append(node)
             continue
-        if isinstance(node, ast.ClassDef):
-            if node.name not in used_names and node.name not in used_classes:
-                unused_nodes.append(node)
+
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name in used_names:
+                used_nodes.append(node)
             else:
-                used_nodes.append(node)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if node.decorator_list:
-                used_nodes.append(node)
-                continue
-            is_method_of_used_class = any((node.name in methods for cls, methods in class_methods.items() if cls in used_classes))
-            if node.name not in used_names and node.name != "__init__" and (not is_method_of_used_class):
                 unused_nodes.append(node)
-            else:
-                used_nodes.append(node)
-        elif isinstance(node, ast.Assign):
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             assigned_names = set()
-            for target in node.targets:
+            for target in targets:
                 assigned_names.update(extract_assigned_names(target))
-            if not assigned_names or all((name not in used_names and name not in used_classes for name in assigned_names)):
-                unused_nodes.append(node)
-            else:
+            if assigned_names & used_names:
                 used_nodes.append(node)
-        elif isinstance(node, ast.AnnAssign):
-            assigned_names = extract_assigned_names(node.target)
-            if not assigned_names or all((name not in used_names and name not in used_classes for name in assigned_names)):
-                unused_nodes.append(node)
             else:
-                used_nodes.append(node)
+                unused_nodes.append(node)
         else:
             used_nodes.append(node)
-    return (unused_nodes, used_nodes)
+    return unused_nodes, used_nodes
 
 
 def get_unused_code_nodes(
@@ -251,10 +573,18 @@ def get_unused_code_nodes(
     if tree is None:
         tree = ast.parse(content)
 
-    _, used_names, used_classes, class_methods = collect_defined_and_used_names(tree, imported_names, alias_mapping)
-    unused_nodes, used_nodes = find_unused_code_nodes(tree, used_names, used_classes, class_methods, file_path, programatically_imports)
+    # Determine whether to log based on the file path or other criteria
+    should_log: bool = False
+    if file_path.name == "code_analysis.py":
+        should_log = True
 
-    return (unused_nodes, used_nodes)
+    # Collect definitions and usages
+    defined_names, used_names = collect_defined_and_used_names(tree, imported_names, alias_mapping, should_log)
+
+    # Determine unused and used nodes
+    unused_nodes, used_nodes = find_unused_code_nodes(tree, used_names, defined_names, file_path, programatically_imports, should_log)
+
+    return unused_nodes, used_nodes
 
 
 def filter_lines(lines: List[str], lines_to_remove: Set[int]) -> List[str]:
