@@ -136,17 +136,25 @@ def collect_defined_names(tree: ast.AST) -> Set[str]:
     defined_names: Set[str] = set()
 
     class DefinitionCollector(ast.NodeVisitor):
-        def visit_FunctionDef(self, node: ast.FunctionDef):
-            defined_names.add(node.name)
-            self.generic_visit(node)
-
-        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
-            defined_names.add(node.name)
-            self.generic_visit(node)
+        def __init__(self):
+            self.current_class = None
 
         def visit_ClassDef(self, node: ast.ClassDef):
             defined_names.add(node.name)
+            self.current_class = node.name
             self.generic_visit(node)
+            self.current_class = None
+
+        def visit_FunctionDef(self, node: ast.FunctionDef):
+            if self.current_class:
+                function_name = f"{self.current_class}.{node.name}"
+            else:
+                function_name = node.name
+            defined_names.add(function_name)
+            self.generic_visit(node)
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+            self.visit_FunctionDef(node)
 
         def visit_Assign(self, node: ast.Assign):
             for target in node.targets:
@@ -168,10 +176,22 @@ def collect_used_names(tree: ast.AST, reachable_functions: Set[str], alias_mappi
     class UsageCollector(ast.NodeVisitor):
         def __init__(self):
             self.current_function = None
+            self.current_class = None
+
+        def visit_ClassDef(self, node: ast.ClassDef):
+            if node.name in reachable_functions:
+                self.current_class = node.name
+                self.generic_visit(node)
+                self.current_class = None
 
         def visit_FunctionDef(self, node: ast.FunctionDef):
-            if node.name in reachable_functions:
-                self.current_function = node.name
+            if self.current_class:
+                function_name = f"{self.current_class}.{node.name}"
+            else:
+                function_name = node.name
+
+            if function_name in reachable_functions:
+                self.current_function = function_name
                 self.generic_visit(node)
                 self.current_function = None
 
@@ -184,7 +204,10 @@ def collect_used_names(tree: ast.AST, reachable_functions: Set[str], alias_mappi
                 if isinstance(func, ast.Name):
                     name = func.id
                 elif isinstance(func, ast.Attribute):
-                    name = func.attr
+                    if isinstance(func.value, ast.Name):
+                        name = f"{func.value.id}.{func.attr}"
+                    else:
+                        name = func.attr
                 else:
                     name = None
 
@@ -288,6 +311,12 @@ def find_reachable_functions(call_graph: Dict[str, Set[str]], entry_points: Set[
             called_functions = call_graph.get(function_name, set()) & defined_names
             stack.extend(called_functions)
 
+            for name in defined_names:
+                if name.startswith(f"{function_name}."):
+                    method_name = name
+                    if method_name not in reachable_functions:
+                        reachable_functions.add(method_name)
+                        stack.append(method_name)
     return reachable_functions
 
 
@@ -317,16 +346,18 @@ def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alia
         def __init__(self):
             self.call_graph: Dict[str, Set[str]] = {}
             self.function_stack: List[str] = []
-            self.importted_names_graph: Dict[str, Set[str]] = {}
+            self.current_class = None
 
-        def visit_Module(self, node: ast.Module):
-            self.function_stack.append("__module__")
-            self.call_graph.setdefault("__module__", set())
+        def visit_ClassDef(self, node: ast.ClassDef):
+            self.current_class = node.name
             self.generic_visit(node)
-            self.function_stack.pop()
+            self.current_class = None
 
         def visit_FunctionDef(self, node: ast.FunctionDef):
-            function_name = node.name
+            if self.current_class:
+                function_name = f"{self.current_class}.{node.name}"
+            else:
+                function_name = node.name
             self.function_stack.append(function_name)
             self.call_graph.setdefault(function_name, set())
             self.generic_visit(node)
@@ -341,9 +372,15 @@ def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alia
                 func = node.func
                 if isinstance(func, ast.Name):
                     called_function = func.id
-                    self.call_graph[current_function].add(called_function)
                 elif isinstance(func, ast.Attribute):
-                    called_function = func.attr
+                    if isinstance(func.value, ast.Name):
+                        called_function = f"{func.value.id}.{func.attr}"
+                    else:
+                        called_function = func.attr
+                else:
+                    called_function = None
+
+                if called_function:
                     self.call_graph[current_function].add(called_function)
             self.generic_visit(node)
 
