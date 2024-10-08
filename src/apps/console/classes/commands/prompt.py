@@ -21,7 +21,16 @@ from src.libs.utils.file_system import (
     write_log_file,
     write_log_file_from_start,
 )
-from src.libs.utils.code_analysis import (
+
+# @TODO: delete when working
+# from src.libs.utils.code_analysis import (
+#     get_unused_code_nodes,
+#     get_local_imports as get_local_imports_from_content,
+#     remove_blank_lines_from_code_lines,
+#     get_node_source_code_with_decorators,
+# )
+
+from .....libs.utils.code_analysis import (
     get_unused_code_nodes,
     get_local_imports as get_local_imports_from_content,
     remove_blank_lines_from_code_lines,
@@ -288,7 +297,7 @@ class PromptConstructorCommand(BaseCommand):
         if content is None:
             return {}, {}, {}
 
-        return get_local_imports_from_content(content, self.project_root, self.ignore_patterns, ALLOWED_FILES)
+        return get_local_imports_from_content(content, file_path, self.project_root, self.ignore_patterns, ALLOWED_FILES)
 
     def format_prompt_log(self):
         prompt_log_path = self.project_root / self.prompt_log_name
