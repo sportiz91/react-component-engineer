@@ -192,6 +192,7 @@ def collect_used_names(tree: ast.AST, reachable_functions: Set[str], alias_mappi
 
             if function_name in reachable_functions:
                 self.current_function = function_name
+                used_names.add(function_name)
                 self.generic_visit(node)
                 self.current_function = None
 
@@ -296,6 +297,7 @@ def collect_used_names(tree: ast.AST, reachable_functions: Set[str], alias_mappi
 
     used_names.update(module_level_usage_collector.used_names)
     used_names.update(imported_names)
+    used_names.update(reachable_functions)
 
     return used_names
 
@@ -340,7 +342,6 @@ def build_imported_names_graph(call_graph: Dict[str, Set[str]], imported_names: 
     return imported_names_graph
 
 
-# @TODO: delete should_log logic
 def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alias_mapping: Dict[str, str], should_log: bool) -> Tuple[Set[str], Set[str]]:
     class CallGraphBuilder(ast.NodeVisitor):
         def __init__(self):
@@ -464,7 +465,6 @@ def collect_defined_and_used_names(tree: ast.AST, imported_names: Set[str], alia
     call_graph_builder.visit(tree)
     call_graph = call_graph_builder.call_graph
 
-    # @TODO: is this needed ?
     imported_names_graph: Dict[str, Set[str]] = build_imported_names_graph(call_graph, imported_names, defined_names)
 
     reachable_from_imports = find_reachable_functions(call_graph, imported_names, defined_names)
@@ -531,7 +531,6 @@ def extract_assigned_names(node: ast.AST) -> Set[str]:
     return assigned_names
 
 
-# @TODO: delete should_log logic
 def find_unused_code_nodes(
     tree: ast.AST, used_names: Set[str], defined_names: Set[str], file_path: Path, programatically_imports: Dict[Path, Set[str]], should_log: bool
 ) -> Tuple[List[ast.AST], List[ast.AST]]:
@@ -576,7 +575,7 @@ def get_unused_code_nodes(
 
     # Determine whether to log based on the file path or other criteria
     should_log: bool = False
-    if file_path.name == "console_app.py":
+    if file_path.name == "code_analysis.py":
         should_log = True
 
     # Collect definitions and usages
