@@ -539,7 +539,7 @@ def get_unused_code_nodes(
 
     # Determine whether to log based on the file path or other criteria
     should_log: bool = False
-    if file_path.name == "file_system.py":
+    if file_path.name == "console_app.py":
         should_log = True
 
     # Collect definitions and usages
