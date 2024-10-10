@@ -21,15 +21,6 @@ from src.libs.utils.file_system import (
     write_log_file,
     write_log_file_from_start,
 )
-
-# @TODO: delete when working
-# from src.libs.utils.code_analysis import (
-#     get_unused_code_nodes,
-#     get_local_imports as get_local_imports_from_content,
-#     remove_blank_lines_from_code_lines,
-#     get_node_source_code_with_decorators,
-# )
-
 from .....libs.utils.code_analysis import (
     get_unused_code_nodes,
     get_local_imports as get_local_imports_from_content,
