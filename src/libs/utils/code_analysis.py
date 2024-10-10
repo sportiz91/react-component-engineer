@@ -53,6 +53,68 @@ def resolve_import_path(module_name: str, project_root: Path) -> Optional[Path]:
     return None
 
 
+def resolve_relative_import(
+    node: ast.ImportFrom,
+    current_file: Path,
+) -> Optional[Path]:
+    current_package: Path = current_file.parent
+
+    for _ in range(node.level - 1):
+        current_package: Path = current_package.parent
+
+    module_parts: list[str] = node.module.split(".") if node.module else []
+    module_path: Path = current_package.joinpath(*module_parts)
+
+    possible_files: list[Path] = [
+        module_path / "__init__.py",
+        module_path.with_suffix(".py"),
+        module_path,
+    ]
+
+    for path in possible_files:
+        if path.is_file():
+            return path.resolve()
+
+    return None
+
+
+def resolve_absolute_import(
+    node: ast.ImportFrom,
+    project_root: Path,
+) -> Optional[Path]:
+    if node.module and is_local_module(node.module, project_root):
+        return resolve_import_path(node.module, project_root)
+    return None
+
+
+def add_imported_names(
+    node: ast.ImportFrom,
+    module_file: Path,
+    imports: Dict[Path, Set[str]],
+    alias_mapping: Dict[str, str],
+):
+    for alias in node.names:
+        imported_name = alias.name
+        alias_name = alias.asname or alias.name
+        imports.setdefault(module_file, set()).add(imported_name)
+        if alias.asname:
+            alias_mapping[alias_name] = imported_name
+
+
+def process_import_aliases(
+    module_path: Path,
+    aliases: List[ast.alias],
+    imports: Dict[Path, Set[str]],
+    alias_mapping: Dict[str, str],
+):
+    for alias in aliases:
+        imported_name = alias.name
+        alias_name = alias.asname or alias.name
+        imports.setdefault(module_path, set()).add(imported_name)
+        if alias.asname:
+            alias_mapping[alias_name] = imported_name
+
+
 def get_imports_from_import_node(node: ast.Import, project_root: Path) -> Tuple[Dict[Path, Set[str]], Dict[str, str]]:
     imports: Dict[Path, Set[str]] = {}
     alias_mapping: Dict[str, str] = {}
@@ -61,28 +123,26 @@ def get_imports_from_import_node(node: ast.Import, project_root: Path) -> Tuple[
         if is_local_module(alias.name, project_root):
             module_path: Path | None = resolve_import_path(alias.name, project_root)
             if module_path:
-                imported_name: str = alias.name
-                alias_name: str = alias.asname or alias.name
-                imports.setdefault(module_path, set()).add(imported_name)
-                if alias.asname:
-                    alias_mapping[alias_name] = imported_name
+                process_import_aliases(module_path, [alias], imports, alias_mapping)
 
     return imports, alias_mapping
 
 
-def get_imports_from_import_from_node(node: ast.ImportFrom, project_root: Path) -> Tuple[Dict[Path, Set[str]], Dict[str, str]]:
+def get_imports_from_import_from_node(
+    node: ast.ImportFrom,
+    current_file: Path,
+    project_root: Path,
+) -> Tuple[Dict[Path, Set[str]], Dict[str, str]]:
     imports: Dict[Path, Set[str]] = {}
     alias_mapping: Dict[str, str] = {}
 
-    if node.module and is_local_module(node.module, project_root):
-        module_path: Path | None = resolve_import_path(node.module, project_root)
-        if module_path:
-            for alias in node.names:
-                imported_name: str = alias.name
-                alias_name: str = alias.asname or alias.name
-                imports.setdefault(module_path, set()).add(imported_name)
-                if alias.asname:
-                    alias_mapping[alias_name] = imported_name
+    if node.level == 0:
+        module_file = resolve_absolute_import(node, project_root)
+    else:
+        module_file = resolve_relative_import(node, current_file)
+
+    if module_file:
+        add_imported_names(node, module_file, imports, alias_mapping)
 
     return imports, alias_mapping
 
@@ -105,11 +165,15 @@ def get_imports_from_programmatic_imports(node: ast.Call, project_root: Path, ig
 
 
 def get_local_imports(
-    content: str, project_root: Path, ignore_patterns: List[str] = [], allowed_files: List[str] = []
+    content: str,
+    file_path: Path,
+    project_root: Path,
+    ignore_patterns: List[str] = [],
+    allowed_files: List[str] = [],
 ) -> Tuple[Dict[Path, Set[str]], Dict[Path, Set[str]], Dict[str, str]]:
     tree = ast.parse(content)
     imports: Dict[Path, Set[str]] = {}
-    programatically_imports: Dict[Path, Set[str]] = {}
+    programmatic_imports: Dict[Path, Set[str]] = {}
     alias_mapping: Dict[str, str] = {}
 
     for node in ast.walk(tree):
@@ -119,7 +183,7 @@ def get_local_imports(
                 imports.setdefault(module_path, set()).update(names)
             alias_mapping.update(alias_m)
         elif isinstance(node, ast.ImportFrom):
-            import_dict, alias_m = get_imports_from_import_from_node(node, project_root)
+            import_dict, alias_m = get_imports_from_import_from_node(node, file_path, project_root)
             for module_path, names in import_dict.items():
                 imports.setdefault(module_path, set()).update(names)
             alias_mapping.update(alias_m)
@@ -127,9 +191,9 @@ def get_local_imports(
             import_dict = get_imports_from_programmatic_imports(node, project_root, ignore_patterns, allowed_files)
             for module_path, names in import_dict.items():
                 imports.setdefault(module_path, set()).update(names)
-                programatically_imports.setdefault(module_path, set()).update(names)
+                programmatic_imports.setdefault(module_path, set()).update(names)
 
-    return imports, programatically_imports, alias_mapping
+    return imports, programmatic_imports, alias_mapping
 
 
 def collect_defined_names(tree: ast.AST) -> Set[str]:
