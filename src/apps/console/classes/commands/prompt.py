@@ -21,6 +21,7 @@ from src.libs.utils.file_system import (
     write_log_file,
     write_log_file_from_start,
 )
+from src.libs.utils.configuration import get_config_value
 from .....libs.utils.code_analysis import (
     get_unused_code_nodes,
     get_local_imports as get_local_imports_from_content,
@@ -31,7 +32,8 @@ from .....libs.utils.code_analysis import (
 
 NAME: str = "prompt"
 DESCRIPTION: str = "Construct a prompt log file from given Python files or all files in specified folders"
-PROJECT_ROOT: Path = Path(__file__).resolve().parents[5]
+DEFAULT_PROJECT_ROOT: Path | None = Path(get_config_value("PROJECT_ROOT_PATH", "")) if get_config_value("PROJECT_ROOT_PATH", None) else None
+DEFAULT_PROMPT_PATH: Path | None = Path(get_config_value("PROMPT_ROOT_PATH", "")) if get_config_value("PROMPT_ROOT_PATH", None) else None
 PROCESSED_FILES: Set[Path] = set()
 ALLOWED_FILES: List[str] = [".gitignore", ".env.example", "pyproject.toml", ".flake8"]
 PROCESSED_CONTENT: Dict[Path, Set[int]] = {}
@@ -42,13 +44,31 @@ DEFAULT_PROMPT_LOG_NAME: str = "prompt.log"
 class PromptConstructorCommand(BaseCommand):
     name: str = NAME
     description: str = DESCRIPTION
-    project_root: Path = PROJECT_ROOT
+    project_root: Path = DEFAULT_PROJECT_ROOT
     processed_files: Set[Path] = PROCESSED_FILES
     processed_content: Dict[Path, Set[int]] = PROCESSED_CONTENT
     prompt_log_name: str = DEFAULT_PROMPT_LOG_NAME
     processed_alias_mapping: Dict[str, str] = ALIAS_MAPPING
 
     async def execute(self, *args: Any, **kwargs: Any) -> None:
+        await self.set_project_root()
+
+        self.console.print(f"You're analyzing: '{self.project_root}' project", style="bold green")
+
+        if not path_exists(self.project_root) or not is_path_directory(self.project_root):
+            self.console.print(f"The path '{self.project_root}' is not a valid directory.", style="bold red")
+            return
+
+        prompt_log_directory: Path | None = await self.get_prompt_log_path()
+
+        if not path_exists(prompt_log_directory.parent):
+            self.console.print(f"The path '{prompt_log_directory.parent}' does not exist.", style="bold red")
+            return
+
+        prompt_log: Path = prompt_log_directory / self.prompt_log_name
+
+        self.console.print(f"Prompt.log file is gonna be saved on: '{prompt_log}'", style="bold green")
+
         self.ignore_patterns: List[str] = get_gitignore_patters_list(self.project_root)
 
         mode: str = await get_user_input("Enter mode: ", choices=["all", "traverse"], default="all") or "all"
@@ -60,8 +80,6 @@ class PromptConstructorCommand(BaseCommand):
             )
             or "differences"
         )
-
-        prompt_log: Path = self.project_root / self.prompt_log_name
 
         with open(prompt_log, "w+") as log_file:
             if mode == "traverse":
@@ -305,6 +323,28 @@ class PromptConstructorCommand(BaseCommand):
             self.console.print("Prompt log has been formatted and unexpected characters removed.", style="bold green")
         except Exception as e:
             self.console.print(f"An error occurred while formatting the prompt log: {str(e)}", style="bold red")
+
+    async def set_project_root(self) -> None:
+        if DEFAULT_PROJECT_ROOT:
+            self.project_root = DEFAULT_PROJECT_ROOT
+            return
+
+        project_root_input: str = await get_user_input("Enter the project root path (leave blank for prompter project): ", default=str(self.project_root))
+
+        if project_root_input:
+            self.project_root = Path(project_root_input).resolve()
+        else:
+            self.project_root = Path(__file__).resolve().parents[5]
+
+    async def get_prompt_log_path(self) -> Path | None:
+        if DEFAULT_PROMPT_PATH:
+            return DEFAULT_PROMPT_PATH
+
+        output_path_input: str = await get_user_input(
+            "Enter the path where to save the prompt.log file (leave blank for default): ", default=str(self.project_root / self.prompt_log_name)
+        )
+
+        return Path(output_path_input).resolve()
 
     def get_mode(self) -> str:
         return getattr(self, "_mode", "all")

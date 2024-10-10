@@ -637,15 +637,12 @@ def get_unused_code_nodes(
     if tree is None:
         tree = ast.parse(content)
 
-    # Determine whether to log based on the file path or other criteria
     should_log: bool = False
     if file_path.name == "code_analysis.py":
         should_log = True
 
-    # Collect definitions and usages
     defined_names, used_names = collect_defined_and_used_names(tree, imported_names, alias_mapping, should_log)
 
-    # Determine unused and used nodes
     unused_nodes, used_nodes = find_unused_code_nodes(tree, used_names, defined_names, file_path, programatically_imports, should_log)
 
     return unused_nodes, used_nodes

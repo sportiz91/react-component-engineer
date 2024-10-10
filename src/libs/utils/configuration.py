@@ -9,6 +9,8 @@ def get_config() -> Dict[str, Optional[str]]:
     return {
         "ENVIRONMENT": os.getenv("ENVIRONMENT"),
         "LOGGING_LEVEL": os.getenv("LOGGING_LEVEL"),
+        "PROJECT_ROOT_PATH": os.getenv("PROJECT_ROOT_PATH"),
+        "PROMPT_ROOT_PATH": os.getenv("PROMPT_ROOT_PATH"),
     }
 
 
