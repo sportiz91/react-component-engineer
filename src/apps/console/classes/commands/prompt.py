@@ -7,7 +7,7 @@ import re
 from src.apps.console.classes.commands.base import BaseCommand
 from src.libs.helpers.console import get_user_input
 from src.libs.utils.string import wrap_text, remove_non_printable_characters
-from src.libs.utils.constants import CODE_CHANGES, ENTIRE_FILE, DASHED_MARKERS_EXPLANATION
+from src.libs.utils.constants import CODE_CHANGES, ENTIRE_FILE, DASHED_MARKERS_EXPLANATION, XML_MARKERS_EXPLANATION
 from src.libs.utils.prompting import create_dashed_filename_marker, create_dashed_filename_end_marker, update_content_dashed_marker
 from src.libs.utils.file_system import (
     copy_to_clipboard,
@@ -108,7 +108,10 @@ class PromptConstructorCommand(BaseCommand):
                 else:
                     self.process_file_used_code_only(start_file, log_file)
 
-                write_log_file(log_file, f"\n{wrap_text(DASHED_MARKERS_EXPLANATION)}")
+                if self.output_format.upper() == "XML":
+                    write_log_file(log_file, f"\n{wrap_text(XML_MARKERS_EXPLANATION)}")
+                else:
+                    write_log_file(log_file, f"\n{wrap_text(DASHED_MARKERS_EXPLANATION)}")
 
                 if closing_message:
                     write_log_file(log_file, f"\n{wrap_text(closing_message)}")
@@ -131,7 +134,10 @@ class PromptConstructorCommand(BaseCommand):
 
                 self.process_multiple_folders(folders, log_file)
 
-                write_log_file(log_file, f"\n{wrap_text(DASHED_MARKERS_EXPLANATION)}")
+                if self.output_format.upper() == "XML":
+                    write_log_file(log_file, f"\n{wrap_text(XML_MARKERS_EXPLANATION)}")
+                else:
+                    write_log_file(log_file, f"\n{wrap_text(DASHED_MARKERS_EXPLANATION)}")
 
                 if closing_message:
                     write_log_file(log_file, f"\n{wrap_text(closing_message)}")
@@ -339,33 +345,45 @@ class PromptConstructorCommand(BaseCommand):
             documents: List[Dict[str, object]] = []
             index: int = 1
 
-            pattern: re.Pattern = re.compile(r"--- Filename (.*?) ---\n(.*?)--- End of Filename \1 ---", re.DOTALL)
+            pattern: re.Pattern = re.compile(r"^--- Filename (.*?) ---\n(.*?)^--- End of Filename \1 ---", re.DOTALL | re.MULTILINE)
             matches: List[tuple[str, str]] = pattern.findall(content)
 
             for match in matches:
                 source: str = match[0].strip()
-                document_content: str = match[1].strip()
+                document_content: str = match[1].rstrip()
                 documents.append({"index": index, "source": source, "content": document_content})
                 index += 1
+
+            remaining_content = pattern.sub("", content).strip()
 
             xml_elements: List[str] = ["<documents>"]
 
             for doc in documents:
-                xml_element: str = f"""
-                    <document index="{doc["index"]}">
-                        <source>{doc["source"]}</source>
-                        <document_content>
-                    {doc["content"]}
-                        </document_content>
-                    </document>"""
+                code_lines = doc["content"].splitlines()
+                indented_code_lines = ["      " + line for line in code_lines]
+                indented_content = "\n".join(indented_code_lines)
+
+                xml_element: str = (
+                    f'  <document index="{doc["index"]}">\n'
+                    f'    <source>{doc["source"]}</source>\n'
+                    f"    <document_content>\n"
+                    f"{indented_content}\n"
+                    f"    </document_content>\n"
+                    f"  </document>"
+                )
                 xml_elements.append(xml_element)
 
             xml_elements.append("</documents>")
 
             xml_content: str = "\n".join(xml_elements)
 
+            if remaining_content:
+                final_content = f"{xml_content}\n\n{remaining_content}"
+            else:
+                final_content = xml_content
+
             with open(prompt_log_path, "w", encoding="utf-8") as file:
-                file.write(xml_content)
+                file.write(final_content)
 
             self.console.print("Prompt log has been transformed into XML format.", style="bold green")
 
