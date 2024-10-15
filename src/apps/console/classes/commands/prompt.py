@@ -1,6 +1,7 @@
 import ast
 from pathlib import Path
 from typing import Set, List, Any, Dict, Tuple
+import re
 
 
 from src.apps.console.classes.commands.base import BaseCommand
@@ -39,6 +40,7 @@ ALLOWED_FILES: List[str] = [".gitignore", ".env.example", "pyproject.toml", ".fl
 PROCESSED_CONTENT: Dict[Path, Set[int]] = {}
 ALIAS_MAPPING: Dict[str, str] = {}
 DEFAULT_PROMPT_LOG_NAME: str = "prompt.log"
+DEFAULT_OUTPUT_FORMAT: str | None = get_config_value("OUTPUT_CODE_FORMAT", None)
 
 
 class PromptConstructorCommand(BaseCommand):
@@ -49,6 +51,7 @@ class PromptConstructorCommand(BaseCommand):
     processed_content: Dict[Path, Set[int]] = PROCESSED_CONTENT
     prompt_log_name: str = DEFAULT_PROMPT_LOG_NAME
     processed_alias_mapping: Dict[str, str] = ALIAS_MAPPING
+    output_format: str | None = DEFAULT_OUTPUT_FORMAT
 
     async def execute(self, *args: Any, **kwargs: Any) -> None:
         await self.set_project_root()
@@ -80,6 +83,8 @@ class PromptConstructorCommand(BaseCommand):
             )
             or "differences"
         )
+
+        self.output_format = await self.get_output_format()
 
         with open(prompt_log, "w+") as log_file:
             if mode == "traverse":
@@ -320,9 +325,52 @@ class PromptConstructorCommand(BaseCommand):
             with open(prompt_log_path, "w", encoding="utf-8") as file:
                 file.write(formatted_content)
 
+            if self.output_format.upper() == "XML":
+                self.transform_prompt_log_to_xml(prompt_log_path)
+
             self.console.print("Prompt log has been formatted and unexpected characters removed.", style="bold green")
+
         except Exception as e:
             self.console.print(f"An error occurred while formatting the prompt log: {str(e)}", style="bold red")
+
+    def transform_prompt_log_to_xml(self, prompt_log_path: Path) -> None:
+        try:
+            content: str = read_file_content(prompt_log_path)
+            documents: List[Dict[str, object]] = []
+            index: int = 1
+
+            pattern: re.Pattern = re.compile(r"--- Filename (.*?) ---\n(.*?)--- End of Filename \1 ---", re.DOTALL)
+            matches: List[tuple[str, str]] = pattern.findall(content)
+
+            for match in matches:
+                source: str = match[0].strip()
+                document_content: str = match[1].strip()
+                documents.append({"index": index, "source": source, "content": document_content})
+                index += 1
+
+            xml_elements: List[str] = ["<documents>"]
+
+            for doc in documents:
+                xml_element: str = f"""
+                    <document index="{doc["index"]}">
+                        <source>{doc["source"]}</source>
+                        <document_content>
+                    {doc["content"]}
+                        </document_content>
+                    </document>"""
+                xml_elements.append(xml_element)
+
+            xml_elements.append("</documents>")
+
+            xml_content: str = "\n".join(xml_elements)
+
+            with open(prompt_log_path, "w", encoding="utf-8") as file:
+                file.write(xml_content)
+
+            self.console.print("Prompt log has been transformed into XML format.", style="bold green")
+
+        except Exception as e:
+            self.console.print(f"An error occurred while transforming the prompt log to XML: {str(e)}", style="bold red")
 
     async def set_project_root(self) -> None:
         if DEFAULT_PROJECT_ROOT:
@@ -345,6 +393,12 @@ class PromptConstructorCommand(BaseCommand):
         )
 
         return Path(output_path_input).resolve()
+
+    async def get_output_format(self) -> str:
+        if not self.output_format:
+            return await get_user_input("Choose output format:", choices=["Filename", "XML"], default="Filename")
+
+        return self.output_format.strip()
 
     def get_mode(self) -> str:
         return getattr(self, "_mode", "all")
