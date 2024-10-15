@@ -97,11 +97,7 @@ class PromptConstructorCommand(BaseCommand):
 
                 traverse_mode: str | None = await get_user_input("Choose traverse mode:", choices=["entire file", "used code only"], default="entire file")
 
-                starting_message: str = await self.get_starting_message()
                 closing_message: str = await self.get_closing_message()
-
-                if starting_message:
-                    write_log_file(log_file, f"{wrap_text(starting_message)}\n\n")
 
                 if traverse_mode == "entire file":
                     self.process_file(start_file, log_file)
@@ -126,11 +122,7 @@ class PromptConstructorCommand(BaseCommand):
                 folder_paths = await get_user_input("Enter the folder paths (space-separated, e.g., src/apps/console src/libs): ")
                 folders = [self.project_root / folder.strip() for folder in folder_paths.split()]
 
-                starting_message = await self.get_starting_message()
                 closing_message = await self.get_closing_message()
-
-                if starting_message:
-                    write_log_file(log_file, f"{wrap_text(starting_message)}\n\n")
 
                 self.process_multiple_folders(folders, log_file)
 
@@ -159,9 +151,6 @@ class PromptConstructorCommand(BaseCommand):
             self.console.print("prompt log has been copied to the clipboard", style="bold green")
 
         self.console.print(f"prompt log has been written to {prompt_log}", style="bold green")
-
-    async def get_starting_message(self) -> str:
-        return await get_user_input("Enter a message to be written at the beginning of the prompt.log file", multiline=True)
 
     async def get_closing_message(self) -> str:
         return await get_user_input("Enter a message to be written at the end of the prompt.log file", multiline=True)
