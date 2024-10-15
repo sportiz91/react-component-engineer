@@ -104,6 +104,8 @@ class PromptConstructorCommand(BaseCommand):
                 else:
                     self.process_file_used_code_only(start_file, log_file)
 
+                write_log_file(log_file, "<context>")
+
                 if self.output_format.upper() == "XML":
                     write_log_file(log_file, f"\n{wrap_text(XML_MARKERS_EXPLANATION)}")
                 else:
@@ -112,11 +114,17 @@ class PromptConstructorCommand(BaseCommand):
                 if closing_message:
                     write_log_file(log_file, f"\n{wrap_text(closing_message)}")
 
+                write_log_file(log_file, "\n</context>\n\n")
+
+                write_log_file(log_file, "<instructions>")
+
                 if entire_file_vs_code_differences == "differences":
                     write_log_file(log_file, f"\n{wrap_text(CODE_CHANGES)}")
 
                 elif entire_file_vs_code_differences == "entire":
                     write_log_file(log_file, f"\n{wrap_text(ENTIRE_FILE)}")
+
+                write_log_file(log_file, "</instructions>")
 
             elif mode == "all":
                 folder_paths = await get_user_input("Enter the folder paths (space-separated, e.g., src/apps/console src/libs): ")
@@ -126,6 +134,8 @@ class PromptConstructorCommand(BaseCommand):
 
                 self.process_multiple_folders(folders, log_file)
 
+                write_log_file(log_file, "<context>")
+
                 if self.output_format.upper() == "XML":
                     write_log_file(log_file, f"\n{wrap_text(XML_MARKERS_EXPLANATION)}")
                 else:
@@ -134,11 +144,17 @@ class PromptConstructorCommand(BaseCommand):
                 if closing_message:
                     write_log_file(log_file, f"\n{wrap_text(closing_message)}")
 
+                write_log_file(log_file, "\n</context>\n\n")
+
+                write_log_file(log_file, "<instructions>")
+
                 if entire_file_vs_code_differences == "differences":
                     write_log_file(log_file, f"\n{wrap_text(CODE_CHANGES)}")
 
                 elif entire_file_vs_code_differences == "entire":
                     write_log_file(log_file, f"\n{wrap_text(ENTIRE_FILE)}")
+
+                write_log_file(log_file, "</instructions>")
 
             else:
                 self.console.print(f"Invalid mode: {mode}", style="bold red")
