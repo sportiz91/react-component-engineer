@@ -389,7 +389,7 @@ class PromptConstructorCommand(BaseCommand):
                 xml_element: str = (
                     f'  <document index="{doc["index"]}">\n'
                     f'    <source>{doc["source"]}</source>\n'
-                    f"    <document_content>\n"
+                    f"    <document_content>"
                     f"{indented_content}\n"
                     f"    </document_content>\n"
                     f"  </document>"
