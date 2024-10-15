@@ -28,5 +28,15 @@ def get_function_indent(line: str) -> int:
     return len(line) - len(line.lstrip())
 
 
+def write_indented_content(content: str, indent_level: int = 2) -> str:
+    content: str = content.strip()
+
+    indented_lines: list[str] = [" " * indent_level + line if line.strip() != "" else "" for line in content.splitlines()]
+
+    indented_content: str = "\n".join(indented_lines)
+
+    return indented_content
+
+
 def remove_non_printable_characters(text: str) -> str:
     return re.sub(r"[^\x20-\x7E\n\r\t]", "", text)

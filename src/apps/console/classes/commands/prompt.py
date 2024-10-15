@@ -6,7 +6,7 @@ import re
 
 from src.apps.console.classes.commands.base import BaseCommand
 from src.libs.helpers.console import get_user_input
-from src.libs.utils.string import wrap_text, remove_non_printable_characters
+from src.libs.utils.string import wrap_text, remove_non_printable_characters, write_indented_content
 from src.libs.utils.constants import CODE_CHANGES, ENTIRE_FILE, DASHED_MARKERS_EXPLANATION, XML_MARKERS_EXPLANATION
 from src.libs.utils.prompting import create_dashed_filename_marker, create_dashed_filename_end_marker, update_content_dashed_marker
 from src.libs.utils.file_system import (
@@ -104,27 +104,36 @@ class PromptConstructorCommand(BaseCommand):
                 else:
                     self.process_file_used_code_only(start_file, log_file)
 
-                write_log_file(log_file, "<context>")
+                write_log_file(log_file, "<context>\n")
 
                 if self.output_format.upper() == "XML":
-                    write_log_file(log_file, f"\n{wrap_text(XML_MARKERS_EXPLANATION)}")
+                    context_content: str = wrap_text(XML_MARKERS_EXPLANATION)
                 else:
-                    write_log_file(log_file, f"\n{wrap_text(DASHED_MARKERS_EXPLANATION)}")
+                    context_content: str = wrap_text(DASHED_MARKERS_EXPLANATION)
 
                 if closing_message:
-                    write_log_file(log_file, f"\n{wrap_text(closing_message)}")
+                    context_content += "\n" + wrap_text(closing_message)
+
+                indented_content: str = write_indented_content(context_content)
+
+                write_log_file(log_file, indented_content)
 
                 write_log_file(log_file, "\n</context>\n\n")
 
-                write_log_file(log_file, "<instructions>")
+                write_log_file(log_file, "<instructions>\n")
 
                 if entire_file_vs_code_differences == "differences":
-                    write_log_file(log_file, f"\n{wrap_text(CODE_CHANGES)}")
-
+                    instructions_content: str = wrap_text(CODE_CHANGES)
                 elif entire_file_vs_code_differences == "entire":
-                    write_log_file(log_file, f"\n{wrap_text(ENTIRE_FILE)}")
+                    instructions_content: str = wrap_text(ENTIRE_FILE)
+                else:
+                    instructions_content: str = ""
 
-                write_log_file(log_file, "</instructions>")
+                indented_content: str = write_indented_content(instructions_content)
+
+                write_log_file(log_file, indented_content)
+
+                write_log_file(log_file, "\n</instructions>")
 
             elif mode == "all":
                 folder_paths = await get_user_input("Enter the folder paths (space-separated, e.g., src/apps/console src/libs): ")
@@ -134,27 +143,36 @@ class PromptConstructorCommand(BaseCommand):
 
                 self.process_multiple_folders(folders, log_file)
 
-                write_log_file(log_file, "<context>")
+                write_log_file(log_file, "<context>\n")
 
                 if self.output_format.upper() == "XML":
-                    write_log_file(log_file, f"\n{wrap_text(XML_MARKERS_EXPLANATION)}")
+                    context_content: str = wrap_text(XML_MARKERS_EXPLANATION)
                 else:
-                    write_log_file(log_file, f"\n{wrap_text(DASHED_MARKERS_EXPLANATION)}")
+                    context_content: str = wrap_text(DASHED_MARKERS_EXPLANATION)
 
                 if closing_message:
-                    write_log_file(log_file, f"\n{wrap_text(closing_message)}")
+                    context_content += "\n" + wrap_text(closing_message)
+
+                indented_content: str = write_indented_content(context_content)
+
+                write_log_file(log_file, indented_content)
 
                 write_log_file(log_file, "\n</context>\n\n")
 
-                write_log_file(log_file, "<instructions>")
+                write_log_file(log_file, "<instructions>\n")
 
                 if entire_file_vs_code_differences == "differences":
-                    write_log_file(log_file, f"\n{wrap_text(CODE_CHANGES)}")
-
+                    instructions_content: str = wrap_text(CODE_CHANGES)
                 elif entire_file_vs_code_differences == "entire":
-                    write_log_file(log_file, f"\n{wrap_text(ENTIRE_FILE)}")
+                    instructions_content: str = wrap_text(ENTIRE_FILE)
+                else:
+                    instructions_content: str = ""
 
-                write_log_file(log_file, "</instructions>")
+                indented_content: str = write_indented_content(instructions_content)
+
+                write_log_file(log_file, indented_content)
+
+                write_log_file(log_file, "\n</instructions>")
 
             else:
                 self.console.print(f"Invalid mode: {mode}", style="bold red")
