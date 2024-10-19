@@ -254,6 +254,8 @@ For example:
 
 XML_MARKERS_EXPLANATION: str = """
 The <documents> tag contains multiple <document> tags, each representing a file (code).
+Each <document> tag contains a <source> tag with the filename and a <document_content> tag with the content of the file.
+On the <source> tag, the index attribute represents the order of the file in the list.
 
 For example:
 
