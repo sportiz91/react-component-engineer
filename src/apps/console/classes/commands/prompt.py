@@ -97,7 +97,7 @@ class PromptConstructorCommand(BaseCommand):
 
                 traverse_mode: str | None = await get_user_input("Choose traverse mode:", choices=["entire file", "used code only"], default="entire file")
 
-                closing_message: str = await self.get_closing_message()
+                ending_context: str = await self.get_ending_context()
 
                 if traverse_mode == "entire file":
                     self.process_file(start_file, log_file)
@@ -111,8 +111,8 @@ class PromptConstructorCommand(BaseCommand):
                 else:
                     context_content: str = wrap_text(DASHED_MARKERS_EXPLANATION)
 
-                if closing_message:
-                    context_content += "\n" + wrap_text(closing_message)
+                if ending_context:
+                    context_content += "\n" + wrap_text(ending_context)
 
                 indented_content: str = write_indented_content(context_content)
 
@@ -121,6 +121,10 @@ class PromptConstructorCommand(BaseCommand):
                 write_log_file(log_file, "\n</context>\n\n")
 
                 write_log_file(log_file, "<instructions>\n")
+
+                instructions: str = await self.get_instructions() + "\n"
+
+                write_log_file(log_file, write_indented_content(wrap_text(instructions)))
 
                 if entire_file_vs_code_differences == "differences":
                     instructions_content: str = wrap_text(CODE_CHANGES)
@@ -139,7 +143,7 @@ class PromptConstructorCommand(BaseCommand):
                 folder_paths = await get_user_input("Enter the folder paths (space-separated, e.g., src/apps/console src/libs): ")
                 folders = [self.project_root / folder.strip() for folder in folder_paths.split()]
 
-                closing_message = await self.get_closing_message()
+                ending_context = await self.get_ending_context()
 
                 self.process_multiple_folders(folders, log_file)
 
@@ -150,8 +154,8 @@ class PromptConstructorCommand(BaseCommand):
                 else:
                     context_content: str = wrap_text(DASHED_MARKERS_EXPLANATION)
 
-                if closing_message:
-                    context_content += "\n" + wrap_text(closing_message)
+                if ending_context:
+                    context_content += "\n" + wrap_text(ending_context)
 
                 indented_content: str = write_indented_content(context_content)
 
@@ -160,6 +164,10 @@ class PromptConstructorCommand(BaseCommand):
                 write_log_file(log_file, "\n</context>\n\n")
 
                 write_log_file(log_file, "<instructions>\n")
+
+                instructions: str = await self.get_instructions() + "\n"
+
+                write_log_file(log_file, write_indented_content(wrap_text(instructions)))
 
                 if entire_file_vs_code_differences == "differences":
                     instructions_content: str = wrap_text(CODE_CHANGES)
@@ -186,8 +194,11 @@ class PromptConstructorCommand(BaseCommand):
 
         self.console.print(f"prompt log has been written to {prompt_log}", style="bold green")
 
-    async def get_closing_message(self) -> str:
-        return await get_user_input("Enter a message to be written at the end of the prompt.log file", multiline=True)
+    async def get_ending_context(self) -> str:
+        return await get_user_input("Enter a message to be written as context at the end of the prompt.log file", multiline=True)
+
+    async def get_instructions(self) -> str:
+        return await get_user_input("Enter a message to be written as instructions at the end of the prompt.log file", multiline=True)
 
     def should_ignore(self, file_path: Path) -> bool:
         return should_ignore_file(file_path, self.project_root, self.ignore_patterns, ALLOWED_FILES)
