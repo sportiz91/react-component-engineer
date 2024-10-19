@@ -238,7 +238,7 @@ analize your own conclusion and improve it.
 
 CLAUDE_CONTEXT_WINDOW: int = 200000
 
-DASHED_MARKERS_EXPLANATION = """
+DASHED_MARKERS_EXPLANATION: str = """
 The markers --- Filename path/to/file.py --- and --- End of Filename path/to/file.py --- 
 indicate the start and end of the full content of the specified file. 
 
@@ -249,4 +249,22 @@ For example:
   print('Hello, World!')
   --- End of Filename src/main.py ---
 </example>
+"""
+
+
+XML_MARKERS_EXPLANATION: str = """
+The <documents> tag contains multiple <document> tags, each representing a file (code).
+Each <document> tag contains a <source> tag with the filename and a <document_content> tag with the content of the file.
+On the <source> tag, the index attribute represents the order of the file in the list.
+
+For example:
+
+<documents>
+  <document index="1">
+    <source>src/main.py</source>
+    <document_content>
+      print('Hello, World!')
+    </document_content>
+  </document>
+</documents>
 """

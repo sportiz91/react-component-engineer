@@ -1,12 +1,13 @@
 import ast
 from pathlib import Path
 from typing import Set, List, Any, Dict, Tuple
+import re
 
 
 from src.apps.console.classes.commands.base import BaseCommand
 from src.libs.helpers.console import get_user_input
-from src.libs.utils.string import wrap_text, remove_non_printable_characters
-from src.libs.utils.constants import CODE_CHANGES, ENTIRE_FILE, DASHED_MARKERS_EXPLANATION
+from src.libs.utils.string import wrap_text, remove_non_printable_characters, write_indented_content
+from src.libs.utils.constants import CODE_CHANGES, ENTIRE_FILE, DASHED_MARKERS_EXPLANATION, XML_MARKERS_EXPLANATION
 from src.libs.utils.prompting import create_dashed_filename_marker, create_dashed_filename_end_marker, update_content_dashed_marker
 from src.libs.utils.file_system import (
     copy_to_clipboard,
@@ -39,6 +40,7 @@ ALLOWED_FILES: List[str] = [".gitignore", ".env.example", "pyproject.toml", ".fl
 PROCESSED_CONTENT: Dict[Path, Set[int]] = {}
 ALIAS_MAPPING: Dict[str, str] = {}
 DEFAULT_PROMPT_LOG_NAME: str = "prompt.log"
+DEFAULT_OUTPUT_FORMAT: str | None = get_config_value("OUTPUT_CODE_FORMAT", None)
 
 
 class PromptConstructorCommand(BaseCommand):
@@ -49,6 +51,7 @@ class PromptConstructorCommand(BaseCommand):
     processed_content: Dict[Path, Set[int]] = PROCESSED_CONTENT
     prompt_log_name: str = DEFAULT_PROMPT_LOG_NAME
     processed_alias_mapping: Dict[str, str] = ALIAS_MAPPING
+    output_format: str | None = DEFAULT_OUTPUT_FORMAT
 
     async def execute(self, *args: Any, **kwargs: Any) -> None:
         await self.set_project_root()
@@ -81,6 +84,8 @@ class PromptConstructorCommand(BaseCommand):
             or "differences"
         )
 
+        self.output_format = await self.get_output_format()
+
         with open(prompt_log, "w+") as log_file:
             if mode == "traverse":
                 filename: str = await get_user_input("Enter the filename (e.g., src/apps/console/main.py): ")
@@ -92,50 +97,90 @@ class PromptConstructorCommand(BaseCommand):
 
                 traverse_mode: str | None = await get_user_input("Choose traverse mode:", choices=["entire file", "used code only"], default="entire file")
 
-                starting_message: str = await self.get_starting_message()
-                closing_message: str = await self.get_closing_message()
-
-                if starting_message:
-                    write_log_file(log_file, f"{wrap_text(starting_message)}\n\n")
+                ending_context: str = await self.get_ending_context()
 
                 if traverse_mode == "entire file":
                     self.process_file(start_file, log_file)
                 else:
                     self.process_file_used_code_only(start_file, log_file)
 
-                write_log_file(log_file, f"\n{wrap_text(DASHED_MARKERS_EXPLANATION)}")
+                write_log_file(log_file, "<context>\n")
 
-                if closing_message:
-                    write_log_file(log_file, f"\n{wrap_text(closing_message)}")
+                if self.output_format.upper() == "XML":
+                    context_content: str = wrap_text(XML_MARKERS_EXPLANATION)
+                else:
+                    context_content: str = wrap_text(DASHED_MARKERS_EXPLANATION)
+
+                if ending_context:
+                    context_content += "\n" + wrap_text(ending_context)
+
+                indented_content: str = write_indented_content(context_content)
+
+                write_log_file(log_file, indented_content)
+
+                write_log_file(log_file, "\n</context>\n\n")
+
+                write_log_file(log_file, "<instructions>\n")
+
+                instructions: str = await self.get_instructions() + "\n"
+
+                write_log_file(log_file, write_indented_content(wrap_text(instructions)))
 
                 if entire_file_vs_code_differences == "differences":
-                    write_log_file(log_file, f"\n{wrap_text(CODE_CHANGES)}")
-
+                    instructions_content: str = wrap_text(CODE_CHANGES)
                 elif entire_file_vs_code_differences == "entire":
-                    write_log_file(log_file, f"\n{wrap_text(ENTIRE_FILE)}")
+                    instructions_content: str = wrap_text(ENTIRE_FILE)
+                else:
+                    instructions_content: str = ""
+
+                indented_content: str = write_indented_content(instructions_content)
+
+                write_log_file(log_file, indented_content)
+
+                write_log_file(log_file, "\n</instructions>")
 
             elif mode == "all":
                 folder_paths = await get_user_input("Enter the folder paths (space-separated, e.g., src/apps/console src/libs): ")
                 folders = [self.project_root / folder.strip() for folder in folder_paths.split()]
 
-                starting_message = await self.get_starting_message()
-                closing_message = await self.get_closing_message()
-
-                if starting_message:
-                    write_log_file(log_file, f"{wrap_text(starting_message)}\n\n")
+                ending_context = await self.get_ending_context()
 
                 self.process_multiple_folders(folders, log_file)
 
-                write_log_file(log_file, f"\n{wrap_text(DASHED_MARKERS_EXPLANATION)}")
+                write_log_file(log_file, "<context>\n")
 
-                if closing_message:
-                    write_log_file(log_file, f"\n{wrap_text(closing_message)}")
+                if self.output_format.upper() == "XML":
+                    context_content: str = wrap_text(XML_MARKERS_EXPLANATION)
+                else:
+                    context_content: str = wrap_text(DASHED_MARKERS_EXPLANATION)
+
+                if ending_context:
+                    context_content += "\n" + wrap_text(ending_context)
+
+                indented_content: str = write_indented_content(context_content)
+
+                write_log_file(log_file, indented_content)
+
+                write_log_file(log_file, "\n</context>\n\n")
+
+                write_log_file(log_file, "<instructions>\n")
+
+                instructions: str = await self.get_instructions() + "\n"
+
+                write_log_file(log_file, write_indented_content(wrap_text(instructions)))
 
                 if entire_file_vs_code_differences == "differences":
-                    write_log_file(log_file, f"\n{wrap_text(CODE_CHANGES)}")
-
+                    instructions_content: str = wrap_text(CODE_CHANGES)
                 elif entire_file_vs_code_differences == "entire":
-                    write_log_file(log_file, f"\n{wrap_text(ENTIRE_FILE)}")
+                    instructions_content: str = wrap_text(ENTIRE_FILE)
+                else:
+                    instructions_content: str = ""
+
+                indented_content: str = write_indented_content(instructions_content)
+
+                write_log_file(log_file, indented_content)
+
+                write_log_file(log_file, "\n</instructions>")
 
             else:
                 self.console.print(f"Invalid mode: {mode}", style="bold red")
@@ -149,11 +194,11 @@ class PromptConstructorCommand(BaseCommand):
 
         self.console.print(f"prompt log has been written to {prompt_log}", style="bold green")
 
-    async def get_starting_message(self) -> str:
-        return await get_user_input("Enter a message to be written at the beginning of the prompt.log file", multiline=True)
+    async def get_ending_context(self) -> str:
+        return await get_user_input("Enter a message to be written as context at the end of the prompt.log file", multiline=True)
 
-    async def get_closing_message(self) -> str:
-        return await get_user_input("Enter a message to be written at the end of the prompt.log file", multiline=True)
+    async def get_instructions(self) -> str:
+        return await get_user_input("Enter a message to be written as instructions at the end of the prompt.log file", multiline=True)
 
     def should_ignore(self, file_path: Path) -> bool:
         return should_ignore_file(file_path, self.project_root, self.ignore_patterns, ALLOWED_FILES)
@@ -320,9 +365,64 @@ class PromptConstructorCommand(BaseCommand):
             with open(prompt_log_path, "w", encoding="utf-8") as file:
                 file.write(formatted_content)
 
+            if self.output_format.upper() == "XML":
+                self.transform_prompt_log_to_xml(prompt_log_path)
+
             self.console.print("Prompt log has been formatted and unexpected characters removed.", style="bold green")
+
         except Exception as e:
             self.console.print(f"An error occurred while formatting the prompt log: {str(e)}", style="bold red")
+
+    def transform_prompt_log_to_xml(self, prompt_log_path: Path) -> None:
+        try:
+            content: str = read_file_content(prompt_log_path)
+            documents: List[Dict[str, object]] = []
+            index: int = 1
+
+            pattern: re.Pattern = re.compile(r"^--- Filename (.*?) ---\n(.*?)^--- End of Filename \1 ---", re.DOTALL | re.MULTILINE)
+            matches: List[tuple[str, str]] = pattern.findall(content)
+
+            for match in matches:
+                source: str = match[0].strip()
+                document_content: str = match[1].rstrip()
+                documents.append({"index": index, "source": source, "content": document_content})
+                index += 1
+
+            remaining_content = pattern.sub("", content).strip()
+
+            xml_elements: List[str] = ["<documents>"]
+
+            for doc in documents:
+                code_lines = doc["content"].splitlines()
+                indented_code_lines = ["      " + line for line in code_lines]
+                indented_content = "\n".join(indented_code_lines)
+
+                xml_element: str = (
+                    f'  <document index="{doc["index"]}">\n'
+                    f'    <source>{doc["source"]}</source>\n'
+                    f"    <document_content>"
+                    f"{indented_content}\n"
+                    f"    </document_content>\n"
+                    f"  </document>"
+                )
+                xml_elements.append(xml_element)
+
+            xml_elements.append("</documents>")
+
+            xml_content: str = "\n".join(xml_elements)
+
+            if remaining_content:
+                final_content = f"{xml_content}\n\n{remaining_content}"
+            else:
+                final_content = xml_content
+
+            with open(prompt_log_path, "w", encoding="utf-8") as file:
+                file.write(final_content)
+
+            self.console.print("Prompt log has been transformed into XML format.", style="bold green")
+
+        except Exception as e:
+            self.console.print(f"An error occurred while transforming the prompt log to XML: {str(e)}", style="bold red")
 
     async def set_project_root(self) -> None:
         if DEFAULT_PROJECT_ROOT:
@@ -345,6 +445,12 @@ class PromptConstructorCommand(BaseCommand):
         )
 
         return Path(output_path_input).resolve()
+
+    async def get_output_format(self) -> str:
+        if not self.output_format:
+            return await get_user_input("Choose output format:", choices=["Filename", "XML"], default="Filename")
+
+        return self.output_format.strip()
 
     def get_mode(self) -> str:
         return getattr(self, "_mode", "all")
