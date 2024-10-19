@@ -41,6 +41,7 @@ PROCESSED_CONTENT: Dict[Path, Set[int]] = {}
 ALIAS_MAPPING: Dict[str, str] = {}
 DEFAULT_PROMPT_LOG_NAME: str = "prompt.log"
 DEFAULT_OUTPUT_FORMAT: str | None = get_config_value("OUTPUT_CODE_FORMAT", None)
+DEFAULT_CHAIN_OF_THOUGHT: bool | None = get_config_value("CHAIN_OF_THOUGHT", "false") == "true" if get_config_value("CHAIN_OF_THOUGHT", None) else None
 
 
 class PromptConstructorCommand(BaseCommand):
@@ -84,7 +85,10 @@ class PromptConstructorCommand(BaseCommand):
             or "differences"
         )
 
-        is_chain_of_thought: bool = await get_yes_no_bool_user_input(console_message="Use CoT?", default_value="yes")
+        is_chain_of_thought: bool = DEFAULT_CHAIN_OF_THOUGHT
+
+        if DEFAULT_CHAIN_OF_THOUGHT is None:
+            is_chain_of_thought: bool = await get_yes_no_bool_user_input(console_message="Use CoT?", default_value="yes")
 
         self.output_format = await self.get_output_format()
 
