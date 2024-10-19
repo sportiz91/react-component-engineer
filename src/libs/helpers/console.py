@@ -68,3 +68,9 @@ async def get_user_input(prompt: str, choices: Optional[List[str]] = None, defau
         return await session.prompt_async(message, multiline=multiline, key_bindings=kb, wrap_lines=True)
     except KeyboardInterrupt:
         raise
+
+
+async def get_yes_no_bool_user_input(console_message: str, default_value: str) -> bool:
+    yes_no: str = await get_user_input(console_message, choices=["yes", "no"], default=default_value) or default_value
+
+    return yes_no == "yes"
