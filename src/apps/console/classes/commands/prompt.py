@@ -5,9 +5,9 @@ import re
 
 
 from src.apps.console.classes.commands.base import BaseCommand
-from src.libs.helpers.console import get_user_input
+from src.libs.helpers.console import get_user_input, get_yes_no_bool_user_input
 from src.libs.utils.string import wrap_text, remove_non_printable_characters, write_indented_content
-from src.libs.utils.constants import CODE_CHANGES, ENTIRE_FILE, DASHED_MARKERS_EXPLANATION, XML_MARKERS_EXPLANATION
+from src.libs.utils.constants import CODE_CHANGES, ENTIRE_FILE, DASHED_MARKERS_EXPLANATION, XML_MARKERS_EXPLANATION, CHAIN_OF_THOUGHT
 from src.libs.utils.prompting import create_dashed_filename_marker, create_dashed_filename_end_marker, update_content_dashed_marker
 from src.libs.utils.file_system import (
     copy_to_clipboard,
@@ -84,6 +84,8 @@ class PromptConstructorCommand(BaseCommand):
             or "differences"
         )
 
+        is_chain_of_thought: bool = await get_yes_no_bool_user_input(console_message="Use CoT?", default_value="yes")
+
         self.output_format = await self.get_output_format()
 
         with open(prompt_log, "w+") as log_file:
@@ -125,6 +127,9 @@ class PromptConstructorCommand(BaseCommand):
                 instructions: str = await self.get_instructions() + "\n"
 
                 write_log_file(log_file, write_indented_content(wrap_text(instructions)))
+
+                if is_chain_of_thought:
+                    write_log_file(log_file, write_indented_content(wrap_text(CHAIN_OF_THOUGHT)))
 
                 if entire_file_vs_code_differences == "differences":
                     instructions_content: str = wrap_text(CODE_CHANGES)
@@ -168,6 +173,9 @@ class PromptConstructorCommand(BaseCommand):
                 instructions: str = await self.get_instructions() + "\n"
 
                 write_log_file(log_file, write_indented_content(wrap_text(instructions)))
+
+                if is_chain_of_thought:
+                    write_log_file(log_file, write_indented_content(wrap_text(CHAIN_OF_THOUGHT)) + "\n\n")
 
                 if entire_file_vs_code_differences == "differences":
                     instructions_content: str = wrap_text(CODE_CHANGES)
